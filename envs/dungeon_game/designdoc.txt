@@ -1,0 +1,7 @@
+In simplest terms, a player roams a generated dungeon until they find the exit
+They'll obviously have a health stat, unsure of what else
+    Can collect items? Maybe. If I make it too complicated it will take too long to train.
+Dungeon will have traps, treasure (gold), maybe enemies?
+Rooms should be randomly generated and stored so that they can be revisited
+    Will start by hardcoding a dungeon design (or at least hardcoding a seed) so that I can train something worth looking at
+    
