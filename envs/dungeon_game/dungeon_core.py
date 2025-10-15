@@ -58,7 +58,7 @@ class DungeonController():
             if self.visuals:
                 self.renderer.primeScreen()
                 self.hud.draw(self.player, self.renderer.getScreen())
-                self.room.draw(self.renderer.getScreen())
+                self.rooms[self.activeRoom].draw(self.renderer.getScreen())
                 self.player.draw(self.renderer.getScreen())
                 self.renderer.graphicsUpdate()
 
@@ -66,25 +66,18 @@ class DungeonConstructor():
     @staticmethod
     def constructDungeon():
         rooms = []
-        # smooth brain garbage but i dont care
+        # Create 16 rooms, labeled 1–9, then A–G
         for i in range(16):
-            index = i+1
-            if index == 10:
-                index = 'A'
-            elif index == 11:
-                index == 'B'
-            elif index == 12:
-                index == 'C'
-            elif index == 13:
-                index = 'D'
-            elif index == 14:
-                index = 'E'
-            elif index == 15:
-                index = 'F'
-            elif index == 16:
-                index = 'G'
-            newroom = Room(f'room{index}.txt')
-            rooms.append(newroom)
+            if i < 9:
+                index = str(i + 1)
+            else:
+                # Convert 10–16 to A–G
+                index = chr(ord('A') + (i - 9))
+            
+            filename = f'room{index}.txt'
+            new_room = Room(filename)
+            rooms.append(new_room)
+        
         return rooms
 
 
@@ -209,65 +202,61 @@ class Room(GameObject):
         }
 
         tileset = []
-
         try:
             with open(file_path, 'r') as file:
-                for line_number, line in enumerate(file, start=1):
-                    line = line.strip()
+                for line in file:
                     row = []
-                    for col_number, char in enumerate(line, start=1):
-                        if char in tile_mapping:
-                            row.append(tile_mapping[char])
+                    for ch in line.strip():
+                        if ch in tile_mapping:
+                            row.append(tile_mapping[ch])
                         else:
-                            row.append(char)
+                            # Anything else (A–G, 1–9) = door to that room
+                            row.append({'door_to': ch})
                     tileset.append(row)
-
             return tileset
-
         except FileNotFoundError:
-            print(f"Error: File not found: {file_path}")
-            return None
-        except Exception as e:
-            print(f"Error: {e}")
-            return None
+            print(f"Error: Missing {file_path}, using blank room.")
+            return [['empty' for _ in range(10)] for _ in range(10)]
 
     def __init__(self, filename='defaultroom.txt'):
         self.size = 10
+        self.tiles = self.read_tileset(filename)
         self.collidables = []
-        #TODO: Add actual logic instead of this hardcoded box trash
-        self.tiles = self.read_tileset(filename=filename)
         self.spawnpoint = (72, 72)
 
-        # grotesquely inefficient but this logic changes later based on transitions
-        for x in range(self.size):
-            for y in range(self.size):
+        # Find spawnpoint
+        for y in range(self.size):
+            for x in range(self.size):
                 if self.tiles[y][x] == 'initial':
-                    self.spawnpoint = (x*72+36,y*72+36)
+                    self.spawnpoint = (x * 72 + 36, y * 72 + 36)
 
+        # Build interactables
+        for y in range(self.size):
+            for x in range(self.size):
+                tile = self.tiles[y][x]
+                tile_pos = (x * 72, y * 72)
 
-        for x in range(self.size):
-            for y in range(self.size):
-                if self.tiles[y][x] == 'pitfall':
-                    self.collidables.append(PitHazard(initial_pos=(x*72,y*72), room_spawn=self.spawnpoint))
-                elif self.tiles[y][x] == 'coin':
-                    self.collidables.append(Coin(initial_pos=(x*72,y*72)))
-                elif self.tiles[y][x] != 'initial':
-                    # This is door creation logic
-                    facing = 'up'
-                    initial_pos = (0,0)
-                    if x == 0:
-                        facing = 'right'
-                        initial_pos=(100,y*72+36)
-                    if x == 8:
-                        facing = 'left'
-                        initial_pos=(100,y*72+36)
+                if tile == 'pitfall':
+                    self.collidables.append(PitHazard(initial_pos=tile_pos, room_spawn=self.spawnpoint))
+
+                elif tile == 'coin':
+                    self.collidables.append(Coin(initial_pos=tile_pos))
+
+                elif isinstance(tile, dict) and 'door_to' in tile:
+                    door_label = tile['door_to']
+                    facing = None
                     if y == 0:
                         facing = 'up'
-                        initial_pos=(x*72+36, 100)
-                    if y == 8:
+                    elif y == self.size - 1:
                         facing = 'down'
-                        initial_pos=(x*72+36, 100)
-                    self.collidables.append(Door(goes_to=self.tiles[y][x], facing=facing, initial_pos=initial_pos))
+                    elif x == 0:
+                        facing = 'left'
+                    elif x == self.size - 1:
+                        facing = 'right'
+
+                    self.collidables.append(
+                        Door(goes_to=door_label, facing=facing, initial_pos=tile_pos)
+                    )
 
     
     def checkCollisions(self, player):
