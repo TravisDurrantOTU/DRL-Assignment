@@ -1,6 +1,6 @@
 # Visual rendering logic so that a graphical window pops up
-# TODO: Separate core game logic into a DungeonGame class in dungeon_core
-# right now this is holding some of that and is incorrectly functioning as a main for testing
+# This is honestly probably completely pointless but whatever
+
 import pygame
 
 class dungeonVisual():

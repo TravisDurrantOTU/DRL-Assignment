@@ -1,4 +1,0 @@
-# - wall
-. - empty
-c - coin
-p - pitfall
