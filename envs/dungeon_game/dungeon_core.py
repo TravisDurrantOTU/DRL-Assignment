@@ -1,51 +1,48 @@
-# Core classes and logic for the dungeon exploration game
-# Visual stuff will probably be stuffed in here while I test it
-
-from abc import ABC
-from abc import abstractmethod
-from dungeon_visual import dungeonVisual
+from abc import ABC, abstractmethod
 import pygame
 import math
 import os
 
-# Global variables are bad practice, sure
-# But I might need to change some of these values later
-# So they're global constants
+# Global constants
 playerRadius = 15
 coinRadius = 10
 
 class GameObject(ABC):
     @abstractmethod
-    def draw():
+    def get_render_data(self):
+        """Return data needed for rendering this object"""
         pass
 
 class Moveable(GameObject):
     @abstractmethod
-    def move():
+    def move(self):
         pass
 
 class Interactable(GameObject):
-    # what should happen upon collision with the player
     @abstractmethod
-    def collidePlayer():
+    def collidePlayer(self, player):
         pass
 
-    # should just return the size and shape of the interactable
     @abstractmethod
-    def detectCollision():
+    def detectCollision(self, player):
         pass
 
-class DungeonController():
+
+class DungeonController:
     def __init__(self, visuals=False, human=False):
         pygame.init()
         self.running = True
         self.visuals = visuals
-        self.renderer = dungeonVisual()
+        
+        if self.visuals:
+            self.renderer = dungeonVisual()
+        else:
+            self.renderer = None
+            
         if human:
             self.player = HumanPlayer()
         self.rooms = DungeonConstructor.constructDungeon()
         self.activeRoom = 0
-        self.hud = HUD()
 
     def run(self):
         while self.running:
@@ -62,21 +59,17 @@ class DungeonController():
                 if next_room_index is not None:
                     from_direction = door_result['from_direction']
                     self.activeRoom = next_room_index
-                    # Update the room's spawn point to the appropriate door
                     self.update_room_spawn(from_direction)
-                    # Spawn player at the updated spawn point
                     self.player.x = self.rooms[self.activeRoom].spawnpoint[0]
                     self.player.y = self.rooms[self.activeRoom].spawnpoint[1]
-                    # Reset velocity
                     self.player.x_speed = 0
                     self.player.y_speed = 0
 
-            if self.visuals:
-                self.renderer.primeScreen()
-                self.hud.draw(self.player, self.renderer.getScreen())
-                self.rooms[self.activeRoom].draw(self.renderer.getScreen())
-                self.player.draw(self.renderer.getScreen())
-                self.renderer.graphicsUpdate()
+            if self.visuals and self.renderer:
+                self.renderer.render_frame(
+                    self.player,
+                    self.rooms[self.activeRoom]
+                )
     
     def update_room_spawn(self, from_direction):
         """Update room's spawn point based on which door was entered"""
@@ -89,10 +82,8 @@ class DungeonController():
         
         spawn_direction = opposite[from_direction]
         
-        # Find the door in the new room that faces the direction we came from
         for item in self.rooms[self.activeRoom].collidables:
             if isinstance(item, Door) and item.direction == spawn_direction:
-                # Set spawn point just inside the door
                 if spawn_direction == 'up':
                     new_spawn = (item.x + 36, 105)
                 elif spawn_direction == 'down':
@@ -107,8 +98,6 @@ class DungeonController():
                     if isinstance(obj, PitHazard):
                         obj.updateSpawn(new_spawn)
                 return
-        
-        # If no matching door found, leave spawn point as default (from 'i' tile)
     
     def convert_label_to_index(self, label):
         """Convert room labels (1-9, A-G) to list indices (0-15)"""
@@ -122,16 +111,15 @@ class DungeonController():
                 return index
         return None
 
-class DungeonConstructor():
+
+class DungeonConstructor:
     @staticmethod
     def constructDungeon():
         rooms = []
-        # Create 16 rooms, labeled 1–9, then A–G
         for i in range(16):
             if i < 9:
                 index = str(i + 1)
             else:
-                # Convert 10–16 to A–G
                 index = chr(ord('A') + (i - 9))
             
             filename = f'room{index}.txt'
@@ -142,12 +130,20 @@ class DungeonConstructor():
 
 
 class Coin(Interactable):
-    # Defaults to first tile center
     def __init__(self, initial_pos=(72, 72)):
-        # offset because circles are drawn based on center not top-left
         self.x = initial_pos[0] + 36
         self.y = initial_pos[1] + 36 
         self.collected = False
+
+    def get_render_data(self):
+        """Return coin rendering data"""
+        return {
+            'type': 'coin',
+            'x': self.x,
+            'y': self.y,
+            'radius': coinRadius,
+            'collected': self.collected
+        }
 
     def collidePlayer(self, player):
         player.gold += 1
@@ -165,12 +161,6 @@ class Coin(Interactable):
             self.collidePlayer(player)
 
 
-    def draw(self, screen):
-        # TODO: Add texture
-        if self.collected:
-            return
-        pygame.draw.circle(screen, (200, 200, 0), (self.x, self.y), coinRadius)
-
 class Door(Interactable):
     def __init__(self, goes_to=0, facing='up', initial_pos=(0, 0)):
         self.x = initial_pos[0]
@@ -178,47 +168,51 @@ class Door(Interactable):
         self.nextroom = goes_to
         self.direction = facing
 
-    def collidePlayer(self):
+    def get_render_data(self):
+        """Return door rendering data"""
+        return {
+            'type': 'door',
+            'x': self.x,
+            'y': self.y,
+            'direction': self.direction
+        }
+
+    def collidePlayer(self, player):
         return True
-    
-    def draw(self, screen):
-        pygame.draw.circle(screen, (100, 0, 100), (self.x+36, self.y+36), 5)
 
     def detectCollision(self, player):
-        # Door hitbox extends inward from the wall so player can reach it
-        # Player is locked between 87 and 633 in both x and y
-        
         if self.direction == 'up':
-            # Door is at top (y=0), check if player is near top boundary
             if player.y <= 100 and player.x >= self.x and player.x <= self.x + 72:
                 return {'next_room': self.nextroom, 'from_direction': 'up'}
                 
         elif self.direction == 'down':
-            # Door is at bottom (y=648), check if player is near bottom boundary
             if player.y >= 620 and player.x >= self.x and player.x <= self.x + 72:
                 return {'next_room': self.nextroom, 'from_direction': 'down'}
                 
         elif self.direction == 'left':
-            # Door is at left (x=0), check if player is near left boundary
             if player.x <= 100 and player.y >= self.y and player.y <= self.y + 72:
                 return {'next_room': self.nextroom, 'from_direction': 'left'}
                 
         elif self.direction == 'right':
-            # Door is at right (x=648), check if player is near right boundary
             if player.x >= 620 and player.y >= self.y and player.y <= self.y + 72:
                 return {'next_room': self.nextroom, 'from_direction': 'right'}
         
         return None
 
 
-
-
 class PitHazard(Interactable):
-        # Defaults to occupying second tile
     def __init__(self, initial_pos=(144, 144), room_spawn=(72, 72)):
         self.x = initial_pos[0]
         self.y = initial_pos[1]
         self.room_spawn = room_spawn
+
+    def get_render_data(self):
+        """Return pit hazard rendering data"""
+        return {
+            'type': 'pit',
+            'x': self.x,
+            'y': self.y
+        }
 
     def collidePlayer(self, player):
         player.x = self.room_spawn[0]
@@ -228,6 +222,7 @@ class PitHazard(Interactable):
     def detectCollision(self, player):
         def clamp(value, min_value, max_value):
             return max(min_value, min(value, max_value))
+        
         closest_x = clamp(player.x, self.x, self.x + 72)
         closest_y = clamp(player.y, self.y, self.y + 72)
 
@@ -235,33 +230,13 @@ class PitHazard(Interactable):
         dy = player.y - closest_y
         distance_squared = dx * dx + dy * dy
         
-        if distance_squared <= playerRadius*playerRadius:
+        if distance_squared <= playerRadius * playerRadius:
             self.collidePlayer(player)
 
     def updateSpawn(self, new_spawn):
         self.room_spawn = new_spawn
 
 
-    def draw(self, screen):
-        # TODO: Add texture
-        pygame.draw.circle(screen, (150, 150, 150), (self.x + 36, self.y + 36), 20)
-
-
-# TODO: make this not look like garbage
-class HUD(GameObject):
-    def __init__(self):
-        return
-
-    def draw(self, player, screen):
-        font = pygame.font.SysFont('Arial', 36)
-        text1 = font.render(f"Gold: {player.gold}", True, (0,0,0))
-        text2 = font.render(f"Health: {player.health}", True, (0,0,0))
-        screen.blit(text1, (900, 300))
-        screen.blit(text2, (900, 420))
-
-        
-
-# Room gets its own class so that they are revisitable
 class Room(GameObject):
     @staticmethod
     def read_tileset(filename='defaultroom.txt'):
@@ -284,7 +259,6 @@ class Room(GameObject):
                         if ch in tile_mapping:
                             row.append(tile_mapping[ch])
                         else:
-                            # Anything else (A–G, 1–9) = door to that room
                             row.append({'door_to': ch})
                     tileset.append(row)
             return tileset
@@ -332,45 +306,32 @@ class Room(GameObject):
                         Door(goes_to=door_label, facing=facing, initial_pos=tile_pos)
                     )
 
+    def get_render_data(self):
+        """Return room rendering data"""
+        return {
+            'type': 'room',
+            'size': self.size,
+            'tiles': self.tiles,
+            'collidables': self.collidables
+        }
     
     def checkCollisions(self, player):
         for item in self.collidables:
             result = item.detectCollision(player)
-            # If it's a door collision, return the next room
             if result is not None:
                 return result
-        return None    
+        return None
 
-    def draw(self, screen):
-        #TODO: Make tileset for rooms
-        for i in range(self.size):
-            for j in range(self.size):
-                pos_x = 0 + i*72
-                pos_y = 0 + j*72
-                if self.tiles[j][i] == 'wall':
-                    colour = (0,0,0)
-                elif self.tiles[j][i] == 'door':
-                    colour = (0,255,0)
-                elif self.tiles[j][i] == 'pitfall':
-                    colour = (200, 0, 0)
-                else:
-                    colour = (100,100,100)
-                # This should have the updated tile image drawn instead
-                pygame.draw.rect(screen, colour, (pos_x, pos_y, 72, 72))
-                pygame.draw.rect(screen, (0, 0, 0), (pos_x, pos_y, 72, 72), 1)
-        for item in self.collidables:
-            item.draw(screen)
 
 class Player(Moveable):
     @abstractmethod
-    def draw():
+    def move(self):
         pass
+    
     @abstractmethod
-    def move():
+    def isInteracting(self):
         pass
-    @abstractmethod
-    def isInteracting():
-        pass
+
 
 class HumanPlayer(Player):
     def __init__(self, health=3, initial_pos=(500, 400)):
@@ -381,9 +342,16 @@ class HumanPlayer(Player):
         self.x_speed = 0.0
         self.y_speed = 0.0
 
-    def draw(self, screen):
-        #TODO: Add default player skin, remove placeholder circle
-        pygame.draw.circle(screen, (255, 50, 0), (self.x, self.y), playerRadius)
+    def get_render_data(self):
+        """Return player rendering data"""
+        return {
+            'type': 'player',
+            'x': self.x,
+            'y': self.y,
+            'radius': playerRadius,
+            'health': self.health,
+            'gold': self.gold
+        }
 
     def update_velocity(self, dx=0, dy=0):
         keys = pygame.key.get_pressed()
@@ -404,9 +372,7 @@ class HumanPlayer(Player):
         self.x += self.x_speed
         self.y += self.y_speed
 
-        # hardlocking inside the boundary
-        # 0 + 72 (wall tile size) + 15 (player radius)
-        # 720 - above
+        # Hard locking inside the boundary
         if self.x <= 87:
             self.x = 87
         elif self.x >= 633:
@@ -416,7 +382,7 @@ class HumanPlayer(Player):
         elif self.y >= 633:
             self.y = 633
 
-        # so that speed decays
+        # Speed decay
         self.x_speed *= 0.9
         self.y_speed *= 0.9
         if abs(self.x_speed) < 0.05:
@@ -429,7 +395,126 @@ class HumanPlayer(Player):
         if keys[pygame.K_SPACE]:
             return True
 
+
+class dungeonVisual:
+    """Handles all visual rendering for the dungeon game"""
     
+    def __init__(self, width=1080, height=720):
+        self.width = width
+        self.height = height
+        self.screen = pygame.display.set_mode((width, height))
+        pygame.display.set_caption("Dungeon Explorer")
+        
+        # Initialize font for HUD
+        pygame.font.init()
+        self.hud_font = pygame.font.SysFont('Arial', 36)
+        
+        # Cache for room surfaces
+        self.room_cache = {}
+
+    def getScreen(self):
+        """Legacy method for compatibility"""
+        return self.screen
+    
+    def render_frame(self, player, room):
+        """Render a complete frame with room, player, and HUD"""
+        self.screen.fill((255, 255, 255))
+        self._render_room(room)
+        self._render_player(player)
+        self._render_hud(player)
+        pygame.display.flip()
+    
+    def _render_room(self, room):
+        """Render the room tiles and objects"""
+        room_data = room.get_render_data()
+        room_id = id(room)
+        
+        # Check cache for room base (tiles only)
+        if room_id not in self.room_cache:
+            self.room_cache[room_id] = self._create_room_surface(room_data)
+        
+        # Blit cached room tiles
+        self.screen.blit(self.room_cache[room_id], (0, 0))
+        
+        # Render dynamic objects (coins, doors, pits)
+        for obj in room_data['collidables']:
+            self._render_object(obj)
+    
+    def _create_room_surface(self, room_data):
+        """Create a cached surface for room tiles"""
+        surface = pygame.Surface((720, 720))
+        
+        for j in range(room_data['size']):
+            for i in range(room_data['size']):
+                pos_x = i * 72
+                pos_y = j * 72
+                tile = room_data['tiles'][j][i]
+                
+                if tile == 'wall':
+                    colour = (0, 0, 0)
+                elif tile == 'pitfall':
+                    colour = (200, 0, 0)
+                else:
+                    colour = (100, 100, 100)
+                
+                pygame.draw.rect(surface, colour, (pos_x, pos_y, 72, 72))
+                pygame.draw.rect(surface, (0, 0, 0), (pos_x, pos_y, 72, 72), 1)
+        
+        return surface
+    
+    def _render_object(self, obj):
+        """Render individual game objects"""
+        obj_data = obj.get_render_data()
+        
+        if obj_data['type'] == 'coin':
+            if not obj_data['collected']:
+                pygame.draw.circle(
+                    self.screen,
+                    (200, 200, 0),
+                    (obj_data['x'], obj_data['y']),
+                    obj_data['radius']
+                )
+        
+        elif obj_data['type'] == 'door':
+            pygame.draw.circle(
+                self.screen,
+                (100, 0, 100),
+                (obj_data['x'] + 36, obj_data['y'] + 36),
+                5
+            )
+        
+        elif obj_data['type'] == 'pit':
+            pygame.draw.circle(
+                self.screen,
+                (150, 150, 150),
+                (obj_data['x'] + 36, obj_data['y'] + 36),
+                20
+            )
+    
+    def _render_player(self, player):
+        """Render the player"""
+        player_data = player.get_render_data()
+        pygame.draw.circle(
+            self.screen,
+            (255, 50, 0),
+            (player_data['x'], player_data['y']),
+            player_data['radius']
+        )
+    
+    def _render_hud(self, player):
+        """Render the heads-up display"""
+        player_data = player.get_render_data()
+        
+        text1 = self.hud_font.render(f"Gold: {player_data['gold']}", True, (0, 0, 0))
+        text2 = self.hud_font.render(f"Health: {player_data['health']}", True, (0, 0, 0))
+        
+        self.screen.blit(text1, (900, 300))
+        self.screen.blit(text2, (900, 420))
+    
+    def clear_cache(self):
+        """Clear all cached surfaces"""
+        self.room_cache.clear()
+
 
 if __name__ == "__main__":
     dc = DungeonController(visuals=True, human=True)
