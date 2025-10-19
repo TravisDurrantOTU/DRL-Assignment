@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 # Game constants
 MAX_SPEED = 8
 ACCELERATION = 4
-FRICTION = 8
+FRICTION = 2
 TURN_SPEED = 400
 
 TRACK_WIDTH = 200
