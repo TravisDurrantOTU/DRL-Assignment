@@ -1004,35 +1004,35 @@ if __name__ == "__main__":
     # Target Game - 2000
     # I picked these basically at random tbh
     trainer.train(total_timesteps=1000000, steps_per_rollout=2500)
-    trainer2.train(total_timesteps=50000, eval_freq=1000, update_freq=50, gradient_steps=50)
+    #trainer2.train(total_timesteps=50000, eval_freq=1000, update_freq=50, gradient_steps=50)
     trainer3.train(total_timesteps=1000000, steps_per_rollout=2000)
     trainer4.train(total_timesteps=50000, eval_freq=1000, update_freq=50, gradient_steps=50)
 
     # Save them all
-    trainer.save("race_ppo_cont1.pt")
-    trainer2.save("race_sac_cont1.pt")
-    trainer3.save("target_ppo_cont1.pt")
-    trainer4.save("target_sac_cont1.pt")
+    trainer.save("race_ppo_cont2.pt")
+    #trainer2.save("race_sac_cont1.pt")
+    trainer3.save("target_ppo_cont2.pt")
+    trainer4.save("target_sac_cont2.pt")
 
     # Abusing the fact that matlab holds plots so that I can save it to look at in morning
-    trainer.plot_training(path="race_ppo_cont1.png", display=True)
+    trainer.plot_training(path="race_ppo_cont2.png", display=True)
     log.log("\nEvaluating trained agent...", "console")
     eval_reward = trainer.evaluate(n_episodes=1, render=True)
     log.log(f"Average evaluation reward: {eval_reward:.2f}", "console")
 
-    trainer2.plot_training(path="race_sac_cont1.png", display=True)
+    #trainer2.plot_training(path="race_sac_cont1.png", display=True)
+    #log.log("\nEvaluating trained agent...", "console")
+    #eval_reward = trainer2.evaluate(n_episodes=1, render=True)
+    #log.log(f"Average evaluation reward: {eval_reward:.2f}", "console")
+
+    trainer3.plot_training(path="target_ppo_cont2.png", display=True)
     log.log("\nEvaluating trained agent...", "console")
-    eval_reward = trainer2.evaluate(n_episodes=1, render=True)
+    eval_reward = trainer3.evaluate(n_episodes=1, render=True)
     log.log(f"Average evaluation reward: {eval_reward:.2f}", "console")
 
-    trainer3.plot_training(path="target_ppo_cont1.png", display=True)
+    trainer4.plot_training(path="target_sac_cont2.png", display=True)
     log.log("\nEvaluating trained agent...", "console")
-    eval_reward = trainer.evaluate(n_episodes=1, render=True)
-    log.log(f"Average evaluation reward: {eval_reward:.2f}", "console")
-
-    trainer4.plot_training(path="target_sac_cont1.png", display=True)
-    log.log("\nEvaluating trained agent...", "console")
-    eval_reward = trainer.evaluate(n_episodes=1, render=True)
+    eval_reward = trainer4.evaluate(n_episodes=1, render=True)
     log.log(f"Average evaluation reward: {eval_reward:.2f}", "console")
 
 log.close()
