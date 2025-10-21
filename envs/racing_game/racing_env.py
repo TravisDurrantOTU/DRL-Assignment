@@ -46,8 +46,8 @@ class RacingEnv(gym.Env):
     def __init__(
         self,
         render_mode: Optional[str] = None,
-        action_type: str = "discrete",
-        max_steps: int = 5000,
+        action_type: str = "continuous",
+        max_steps: int = 2500,
         window_size: Tuple[int, int] = (1080, 720),
         polygon_points: Optional[list] = None,
         track_width: int = 100,
@@ -131,6 +131,8 @@ class RacingEnv(gym.Env):
         self.screen = None
         self.clock = None
         self.renderer = None
+
+        self.off_track_count = 0
         
         if render_mode == "human":
             pygame.init()
@@ -160,6 +162,7 @@ class RacingEnv(gym.Env):
         
         self.car = HumanPlayer()
         self.car.reset()
+        self.off_track_count = 0
         
         # Reset episode tracking
         self.current_step = 0
@@ -195,7 +198,14 @@ class RacingEnv(gym.Env):
         
         # Check termination conditions
         self.current_step += 1
-        terminated = off_track or self.track.laps_completed >= 1
+        if off_track:
+            self.off_track_count += 1
+            self.car.reset()
+            self.track.reset()
+    
+        # try 3 screwups before axing the episode
+        terminated = (self.off_track_count >= 3 or 
+                  self.track.laps_completed >= 1)
         truncated = self.current_step >= self.max_steps
         
         # Get observation and info
@@ -332,44 +342,43 @@ class RacingEnv(gym.Env):
         return distances
     
     def _calculate_reward(self, checkpoint_crossed: bool, off_track: bool) -> float:
-        """Calculate reward for current step."""
+        # No reward, positive or negative, for survival
         reward = 0.0
+    
+        # Strong movement incentive
+        speed_ratio = min(abs(self.car.speed) / self.MAX_SPEED, 1.0)
+        reward += speed_ratio * 1.0  # +1 for moving at max speed
         
-        # Large penalty for going off track
+        # Penalize being stationary
+        if abs(self.car.speed) < 1.0:
+            reward -= 2.0
+        
         if off_track:
-            return -100.0
+            reward -= 10.0
+        else:
+            reward += 1.0  # Reward every step on track
         
-        # Reward for crossing checkpoints
         if checkpoint_crossed:
-            reward += 50.0
-            
-            # Bonus for lap completion
+            reward += 100.0
             if self.track.next_checkpoint_index == 0:
-                reward += 200.0
+                reward += 500.0
         
-        # Small reward for forward progress
+        # Progress (scaled up significantly)
         next_checkpoint = self.track.checkpoints[self.track.next_checkpoint_index]
         current_dist = next_checkpoint.distance_to_point((self.car.x, self.car.y))
         normalized_current = min(current_dist / 500.0, 1.0)
         
-        # Reward progress toward checkpoint
         if len(self.prev_checkpoint_distances) > 0:
             prev_dist = self.prev_checkpoint_distances[-1]
-            progress_reward = (prev_dist - normalized_current) * 5.0
+            progress_reward = (prev_dist - normalized_current) * 50.0
             reward += progress_reward
         
-        # Update checkpoint distance history
         self.prev_checkpoint_distances.pop(0)
         self.prev_checkpoint_distances.append(normalized_current)
         
-        # Small reward for maintaining speed
-        speed_reward = (abs(self.car.speed) / self.MAX_SPEED) * 0.1
-        reward += speed_reward
-        
-        # Small time penalty to encourage fast completion
-        reward -= 0.01
-        
         return reward
+
+
     
     def _get_info(self) -> Dict[str, Any]:
         """Get additional information about the environment state."""
@@ -424,6 +433,24 @@ class RacingEnv(gym.Env):
         if self.screen is not None:
             pygame.quit()
             self.screen = None
+    
+    def scripted_policy(self):
+        """Simple forward-driving policy for jumpstarting useful progress into the warmup."""
+        if self.action_type == "discrete":
+            return 1
+        obs = self._get_observation()
+        
+        # Extract angle to checkpoint
+        angle_to_cp_sin = obs[11]
+        angle_to_cp_cos = obs[12]
+        angle_to_cp = np.arctan2(angle_to_cp_sin, angle_to_cp_cos)
+        
+        # Always accelerate, steer toward checkpoint
+        import random
+        acceleration = 1 * random.randint(4, 10) / 10
+        steering = np.clip(angle_to_cp * 2.0, -1.0, 1.0) * random.randint(-5, 10) / 10
+        
+        return np.array([acceleration, steering], dtype=np.float32)
 
 
 # Wrapper for additional features
@@ -466,11 +493,10 @@ class RunningMeanStd:
         self.var = M2 / total_count
         self.count = total_count
 
-
 # Example usage and testing
 if __name__ == "__main__":
     # Create environment
-    env = RacingEnv(render_mode="human", action_type="discrete")
+    env = RacingEnv(render_mode="human", action_type="continuous")
     
     # Test random policy
     obs, info = env.reset()
@@ -478,7 +504,7 @@ if __name__ == "__main__":
     print(f"Action space: {env.action_space}")
     
     for _ in range(1000):
-        action = 1
+        action = env.scripted_policy()
         obs, reward, terminated, truncated, info = env.step(action)
         env.render()
         

@@ -6,6 +6,7 @@ import os
 # Global constants
 playerRadius = 15
 coinRadius = 10
+gamewin = False
 
 class GameObject(ABC):
     @abstractmethod
@@ -45,9 +46,14 @@ class DungeonController:
         self.activeRoom = 0
 
     def run(self):
+        global gamewin
         while self.running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
+                    self.running = False
+                if gamewin:
+                    self.running = False
+                if self.player.health <= 0:
                     self.running = False
             
             self.player.move()
@@ -151,7 +157,7 @@ class Coin(Interactable):
 
     def detectCollision(self, player):
         if self.collected:
-            return
+            return None
 
         dx = self.x - player.x
         dy = self.y - player.y
@@ -159,6 +165,43 @@ class Coin(Interactable):
 
         if distance < abs(coinRadius + playerRadius):
             self.collidePlayer(player)
+        
+        return None
+
+class Exit(Interactable):
+    def __init__(self, initial_pos=(72, 72)):
+        self.x = initial_pos[0] + 36
+        self.y = initial_pos[1] + 36 
+        self.collected = False
+
+    def get_render_data(self):
+        """Return exit rendering data"""
+        return {
+            'type': 'exit',
+            'x': self.x,
+            'y': self.y,
+            'radius': 10,
+            'collected': self.collected
+        }
+
+    def collidePlayer(self, player):
+        global gamewin
+        gamewin = True
+        self.collected = True
+
+    def detectCollision(self, player):
+        if self.collected:
+            return None
+
+        dx = self.x - player.x
+        dy = self.y - player.y
+        distance = math.sqrt(dx**2 + dy**2)
+
+        if distance < abs(coinRadius + playerRadius):
+            self.collidePlayer(player)
+            return {'exit_reached': True}
+        
+        return None
 
 
 class Door(Interactable):
@@ -232,6 +275,8 @@ class PitHazard(Interactable):
         
         if distance_squared <= playerRadius * playerRadius:
             self.collidePlayer(player)
+        
+        return None
 
     def updateSpawn(self, new_spawn):
         self.room_spawn = new_spawn
@@ -247,7 +292,8 @@ class Room(GameObject):
             '.': 'empty',
             'c': 'coin',
             'p': 'pitfall',
-            'i': 'initial'
+            'i': 'initial',
+            ',': 'exit'  # Added exit tile
         }
 
         tileset = []
@@ -289,6 +335,9 @@ class Room(GameObject):
 
                 elif tile == 'coin':
                     self.collidables.append(Coin(initial_pos=tile_pos))
+                
+                elif tile == 'exit':
+                    self.collidables.append(Exit(initial_pos=tile_pos))
 
                 elif isinstance(tile, dict) and 'door_to' in tile:
                     door_label = tile['door_to']
@@ -454,6 +503,8 @@ class dungeonVisual:
                     colour = (0, 0, 0)
                 elif tile == 'pitfall':
                     colour = (200, 0, 0)
+                elif tile == 'exit':
+                    colour = (0, 200, 0)
                 else:
                     colour = (100, 100, 100)
                 
@@ -490,6 +541,14 @@ class dungeonVisual:
                 (obj_data['x'] + 36, obj_data['y'] + 36),
                 20
             )
+        elif obj_data['type'] == 'exit':
+            if not obj_data['collected']:
+                pygame.draw.circle(
+                    self.screen,
+                    (0, 255, 0),
+                    (obj_data['x'], obj_data['y']),
+                    15
+                )
     
     def _render_player(self, player):
         """Render the player"""

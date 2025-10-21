@@ -5,16 +5,44 @@ import pygame
 from typing import Optional, Tuple, Dict, Any
 import math
 
-# Import your existing game classes
-# Assuming the original code is in a file called 'dungeon_game.py'
-# from dungeon_game import *
-
-# For now, I'll include the necessary constants
 PLAYER_RADIUS = 15
 COIN_RADIUS = 10
 ROOM_SIZE = 10
 TILE_SIZE = 72
 MAX_STEPS = 1000
+
+
+class RunningMeanStd:
+    """Tracks running mean and std of a quantity for normalization"""
+    def __init__(self, epsilon=1e-4, shape=()):
+        self.mean = np.zeros(shape, dtype=np.float64)
+        self.var = np.ones(shape, dtype=np.float64)
+        self.count = epsilon
+
+    def update(self, x):
+        batch_mean = np.mean(x)
+        batch_var = np.var(x)
+        batch_count = 1
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean, batch_var, batch_count):
+        delta = batch_mean - self.mean
+        tot_count = self.count + batch_count
+
+        new_mean = self.mean + delta * batch_count / tot_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + np.square(delta) * self.count * batch_count / tot_count
+        new_var = M2 / tot_count
+        new_count = tot_count
+
+        self.mean = new_mean
+        self.var = new_var
+        self.count = new_count
+
+    @property
+    def std(self):
+        return np.sqrt(self.var)
 
 
 class DungeonEnv(gym.Env):
@@ -39,7 +67,7 @@ class DungeonEnv(gym.Env):
         - -10 for losing all health (terminal)
         - +50 for entering a new room (exploration bonus)
         - -0.01 per step (time penalty)
-        - +100 for reaching goal (if specified)
+        - +100 for reaching exit (terminal)
     """
     
     metadata = {
@@ -50,11 +78,13 @@ class DungeonEnv(gym.Env):
     def __init__(
         self,
         render_mode: Optional[str] = None,
-        continuous_actions: bool = False,
+        continuous_actions: bool = True,
         max_steps: int = MAX_STEPS,
         start_room: int = 0,
-        goal_room: Optional[int] = None,
-        observation_mode: str = 'vector'  # 'vector' or 'grid'
+        observation_mode: str = 'vector',  # 'vector' or 'grid'
+        normalize_rewards: bool = True,
+        reward_clip: Optional[float] = 10.0,
+        gamma: float = 0.99
     ):
         super().__init__()
         
@@ -62,8 +92,16 @@ class DungeonEnv(gym.Env):
         self.continuous_actions = continuous_actions
         self.max_steps = max_steps
         self.start_room = start_room
-        self.goal_room = goal_room
         self.observation_mode = observation_mode
+        self.normalize_rewards = normalize_rewards
+        self.reward_clip = reward_clip
+        self.gamma = gamma
+        
+        # Reward normalization
+        if self.normalize_rewards:
+            self.reward_rms = RunningMeanStd(shape=())
+            self.return_val = 0.0
+            self.raw_rewards = []
         
         # Action space
         if continuous_actions:
@@ -85,6 +123,7 @@ class DungeonEnv(gym.Env):
                 2 +  # player position (normalized)
                 2 +  # player velocity
                 2 +  # player stats (health, gold)
+                16 + # room identifier
                 100 +  # room grid (10x10 flattened, simplified encoding)
                 20   # nearby objects features
             )
@@ -118,8 +157,10 @@ class DungeonEnv(gym.Env):
         self.current_step = 0
         self.total_reward = 0
         self.visited_rooms = set()
+        self.visited_positions = set()
         self.prev_gold = 0
         self.prev_health = 3
+        self.exit_reached = False
         
         # Rendering
         if self.render_mode == 'human':
@@ -142,6 +183,7 @@ class DungeonEnv(gym.Env):
         self.player.y = spawn[1]
         self.player.x_speed = 0
         self.player.y_speed = 0
+        self.exit_reached = False
     
     def reset(
         self,
@@ -150,6 +192,11 @@ class DungeonEnv(gym.Env):
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Reset the environment to initial state"""
         super().reset(seed=seed)
+        
+        # Update reward normalization with episode data
+        if self.normalize_rewards and len(self.raw_rewards) > 0:
+            self.reward_rms.update(np.array(self.raw_rewards))
+            self.raw_rewards = []
         
         # Reset game state
         self._init_game()
@@ -160,11 +207,33 @@ class DungeonEnv(gym.Env):
         self.visited_rooms = {self.start_room}
         self.prev_gold = 0
         self.prev_health = 3
+        self.exit_reached = False
+        self.return_val = 0.0
         
         observation = self._get_observation()
         info = self._get_info()
         
         return observation, info
+    
+    def _normalize_reward(self, reward: float) -> float:
+        """Normalize reward using running statistics"""
+        if not self.normalize_rewards:
+            return reward
+        
+        # Track raw reward
+        self.raw_rewards.append(reward)
+        
+        # Update return
+        self.return_val = self.return_val * self.gamma + reward
+        
+        # Normalize
+        normalized_reward = reward / (self.reward_rms.std + 1e-8)
+        
+        # Clip if specified
+        if self.reward_clip is not None:
+            normalized_reward = np.clip(normalized_reward, -self.reward_clip, self.reward_clip)
+        
+        return normalized_reward
     
     def step(
         self,
@@ -172,12 +241,17 @@ class DungeonEnv(gym.Env):
     ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """Execute one step in the environment"""
         self.current_step += 1
+
+        prev_pos = (self.player.x, self.player.y)
         
         # Apply action
         self._apply_action(action)
         
         # Move player
         self.player.move()
+
+        new_pos = (self.player.x, self.player.y)
+        pos_diff = (abs(prev_pos[0] - new_pos[0]), abs((prev_pos[0] - new_pos[0])))
         
         # Store previous state for reward calculation
         prev_room = self.active_room
@@ -185,13 +259,17 @@ class DungeonEnv(gym.Env):
         prev_health = self.player.health
         
         # Check collisions
-        door_result = self.rooms[self.active_room].checkCollisions(self.player)
+        collision_result = self.rooms[self.active_room].checkCollisions(self.player)
+        
+        # Handle exit condition
+        if collision_result is not None and 'exit_reached' in collision_result:
+            self.exit_reached = True
         
         # Handle room transitions
-        if door_result is not None:
-            next_room_index = self._convert_label_to_index(door_result['next_room'])
+        if collision_result is not None and 'next_room' in collision_result:
+            next_room_index = self._convert_label_to_index(collision_result['next_room'])
             if next_room_index is not None:
-                from_direction = door_result['from_direction']
+                from_direction = collision_result['from_direction']
                 self.active_room = next_room_index
                 self._update_room_spawn(from_direction)
                 self.player.x = self.rooms[self.active_room].spawnpoint[0]
@@ -199,23 +277,29 @@ class DungeonEnv(gym.Env):
                 self.player.x_speed = 0
                 self.player.y_speed = 0
         
-        # Calculate reward
-        reward = self._calculate_reward(prev_room, prev_gold, prev_health)
+        # Calculate raw reward
+        raw_reward = self._calculate_reward(prev_room, prev_gold, prev_health, action, pos_diff)
         
         # Check terminal conditions
-        terminated = self.player.health <= 0
-        if self.goal_room is not None and self.active_room == self.goal_room:
-            reward += 100.0
-            terminated = True
+        terminated = self.player.health <= 0 or self.exit_reached
+        
+        # Add exit bonus
+        if self.exit_reached:
+            raw_reward += 100.0
         
         truncated = self.current_step >= self.max_steps
+        
+        # Normalize reward
+        reward = self._normalize_reward(raw_reward)
         
         # Get observation and info
         observation = self._get_observation()
         info = self._get_info()
+        info['raw_reward'] = raw_reward
+        info['normalized_reward'] = reward
         
         # Update tracking
-        self.total_reward += reward
+        self.total_reward += raw_reward
         
         return observation, reward, terminated, truncated, info
     
@@ -223,8 +307,8 @@ class DungeonEnv(gym.Env):
         """Apply the action to the player"""
         if self.continuous_actions:
             # Continuous action
-            dx = float(action[0]) * 0.1
-            dy = float(action[1]) * 0.1
+            dx = float(action[0]) * 0.2
+            dy = float(action[1]) * 0.2
             self.player.update_velocity(dx=dx, dy=dy)
         else:
             # Discrete action
@@ -238,14 +322,55 @@ class DungeonEnv(gym.Env):
             dx, dy = action_map[action]
             self.player.update_velocity(dx=dx, dy=dy)
     
+    def _get_nearest_coin_distance(self) -> Optional[float]:
+        """Get distance to nearest uncollected coin"""
+        room = self.rooms[self.active_room]
+        min_dist = None
+        
+        from dungeon_core import Coin
+        
+        for obj in room.collidables:
+            if isinstance(obj, Coin) and not obj.collected:
+                dist = math.sqrt((obj.x - self.player.x)**2 + (obj.y - self.player.y)**2)
+                if min_dist is None or dist < min_dist:
+                    min_dist = dist
+        
+        return min_dist
+
+    def _get_nearest_door_distance(self) -> Optional[float]:
+        """Get distance to nearest uncollected coin"""
+        room = self.rooms[self.active_room]
+        min_dist = None
+            
+        from dungeon_core import Door
+            
+        for obj in room.collidables:
+            if isinstance(obj, Door):
+                dist = math.sqrt((obj.x - self.player.x)**2 + (obj.y - self.player.y)**2)
+                if min_dist is None or dist < min_dist:
+                    min_dist = dist
+            
+        return min_dist
+    
     def _calculate_reward(
-        self,
-        prev_room: int,
-        prev_gold: int,
-        prev_health: int
+    self,
+    prev_room: int,
+    prev_gold: int,
+    prev_health: int,
+    prev_action: Tuple[float, float],
+    pos_diff: Tuple[float, float]
     ) -> float:
         """Calculate reward for the current step"""
-        reward = -0.01  # Small time penalty
+        reward = 0.0
+
+        # Reward actual movement
+        displacement = math.sqrt(pos_diff[0]**2 + pos_diff[1]**2)
+        if displacement > 1:
+            reward += 0.0001 * displacement
+
+        # Big reward for finding the exit
+        if self.exit_reached:
+            reward += 350.0
         
         # Coin collection
         if self.player.gold > prev_gold:
@@ -262,11 +387,18 @@ class DungeonEnv(gym.Env):
         # Room exploration bonus
         if self.active_room != prev_room:
             if self.active_room not in self.visited_rooms:
-                reward += 50.0
+                reward += 150.0
                 self.visited_rooms.add(self.active_room)
-            else:
-                reward += 5.0  # Small bonus for room transitions
-        
+
+        # Position exploration
+        grid_x = int(self.player.x // 72)
+        grid_y = int(self.player.y // 72)
+        pos_key = (self.active_room, grid_x, grid_y)
+    
+        if pos_key not in self.visited_positions:
+            reward += 3.0
+            self.visited_positions.add(pos_key)
+
         return reward
     
     def _get_observation(self) -> np.ndarray:
@@ -295,8 +427,13 @@ class DungeonEnv(gym.Env):
         # Player stats (normalized)
         obs.extend([
             self.player.health / 3.0,
-            self.player.gold / 10.0  # Assume max ~10 coins per episode
+            self.player.gold / 10.0
         ])
+        
+        # Room identifier (one-hot encoding)
+        room_encoding = [0.0] * 16
+        room_encoding[self.active_room] = 1.0
+        obs.extend(room_encoding)
         
         # Room grid (simplified encoding)
         room = self.rooms[self.active_room]
@@ -320,7 +457,8 @@ class DungeonEnv(gym.Env):
             'wall': 1,
             'pitfall': 2,
             'coin': 3,
-            'initial': 0
+            'initial': 0,
+            'exit': 5
         }
         
         for j in range(ROOM_SIZE):
@@ -354,7 +492,8 @@ class DungeonEnv(gym.Env):
             'wall': 1,
             'pitfall': 2,
             'coin': 3,
-            'initial': 0
+            'initial': 0,
+            'exit': 5
         }
         
         for j in range(ROOM_SIZE):
@@ -368,22 +507,24 @@ class DungeonEnv(gym.Env):
         return encoding
     
     def _get_nearby_objects(self) -> list:
-        """Get features of nearby objects (coins, pits, doors)"""
+        """Get features of nearby objects (coins, pits, doors, exit)"""
         features = []
         room = self.rooms[self.active_room]
         
-        # Find nearest coin, pit, and door
+        # Find nearest coin, pit, door, and exit
         nearest_coin = None
         nearest_pit = None
         nearest_door = None
+        nearest_exit = None
         
         min_coin_dist = float('inf')
         min_pit_dist = float('inf')
         min_door_dist = float('inf')
+        min_exit_dist = float('inf')
+        
+        from dungeon_core import Coin, PitHazard, Door, Exit
         
         for obj in room.collidables:
-            from dungeon_core import Coin, PitHazard, Door
-            
             if isinstance(obj, Coin) and not obj.collected:
                 dist = math.sqrt((obj.x - self.player.x)**2 + (obj.y - self.player.y)**2)
                 if dist < min_coin_dist:
@@ -401,6 +542,12 @@ class DungeonEnv(gym.Env):
                 if dist < min_door_dist:
                     min_door_dist = dist
                     nearest_door = (obj.x + 36, obj.y + 36)
+            
+            elif isinstance(obj, Exit) and not obj.collected:
+                dist = math.sqrt((obj.x - self.player.x)**2 + (obj.y - self.player.y)**2)
+                if dist < min_exit_dist:
+                    min_exit_dist = dist
+                    nearest_exit = (obj.x, obj.y)
         
         # Encode relative positions (normalized)
         if nearest_coin:
@@ -430,15 +577,23 @@ class DungeonEnv(gym.Env):
         else:
             features.extend([0, 0, 1.0])
         
-        # Direction to nearest objects (one-hot encoded roughly)
-        # Add 11 more features to reach 20 total
-        features.extend([0] * 11)
+        if nearest_exit:
+            features.extend([
+                (nearest_exit[0] - self.player.x) / 360,
+                (nearest_exit[1] - self.player.y) / 360,
+                min_exit_dist / 500
+            ])
+        else:
+            features.extend([0, 0, 1.0])
+        
+        # Additional features to reach 20 total
+        features.extend([0] * 8)
         
         return features
     
     def _get_info(self) -> Dict[str, Any]:
         """Get additional info dictionary"""
-        return {
+        info = {
             'player_x': self.player.x,
             'player_y': self.player.y,
             'health': self.player.health,
@@ -446,8 +601,15 @@ class DungeonEnv(gym.Env):
             'active_room': self.active_room,
             'visited_rooms': len(self.visited_rooms),
             'total_reward': self.total_reward,
-            'steps': self.current_step
+            'steps': self.current_step,
+            'exit_reached': self.exit_reached
         }
+        
+        if self.normalize_rewards:
+            info['reward_mean'] = float(self.reward_rms.mean)
+            info['reward_std'] = float(self.reward_rms.std)
+        
+        return info
     
     def render(self):
         """Render the environment"""
@@ -457,24 +619,6 @@ class DungeonEnv(gym.Env):
                 self.rooms[self.active_room]
             )
             pygame.time.Clock().tick(self.metadata['render_fps'])
-        elif self.render_mode == 'rgb_array':
-            return self._render_rgb_array()
-    
-    def _render_rgb_array(self) -> np.ndarray:
-        """Render and return RGB array"""
-        if not hasattr(self, 'rgb_renderer'):
-            from dungeon_core import dungeonVisual
-            self.rgb_renderer = dungeonVisual()
-        
-        self.rgb_renderer.render_frame(
-            self.player,
-            self.rooms[self.active_room]
-        )
-        
-        # Convert pygame surface to numpy array
-        surface = self.rgb_renderer.screen
-        rgb_array = pygame.surfarray.array3d(surface)
-        return np.transpose(rgb_array, (1, 0, 2))
     
     def close(self):
         """Clean up resources"""
@@ -523,24 +667,66 @@ class DungeonEnv(gym.Env):
                 return index
         return None
 
+    def scripted_policy(self):
+        """Random policy just so that warmup code can remain consistent."""
+        import random
+        if not self.continuous_actions:
+            return random.randint(0, 4)
+        return np.array([random.random()*random.randint(-25,25), random.random()*random.randint(-25,25)], dtype=np.float32)
+        
+    def get_reward_stats(self) -> Dict[str, float]:
+        """Get current reward normalization statistics"""
+        if not self.normalize_rewards:
+            return {}
+        
+        return {
+            'reward_mean': float(self.reward_rms.mean),
+            'reward_std': float(self.reward_rms.std),
+            'reward_count': float(self.reward_rms.count)
+        }
+
 
 # Example usage and testing
 if __name__ == "__main__":
-    # Test the environment
-    env = DungeonEnv(render_mode='human', continuous_actions=False)
+    # Test the environment with reward normalization
+    env = DungeonEnv(
+        render_mode='human',
+        continuous_actions=True,
+        normalize_rewards=True,
+        reward_clip=10.0
+    )
     
     obs, info = env.reset()
     print(f"Observation shape: {obs.shape}")
     print(f"Action space: {env.action_space}")
     
     # Run random agent
-    for _ in range(1000):
-        action = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(action)
-        env.render()
+    for episode in range(5):
+        obs, info = env.reset()
+        episode_reward = 0
         
-        if terminated or truncated:
-            print(f"Episode finished: Gold={info['gold']}, Health={info['health']}")
-            obs, info = env.reset()
+        for step in range(200):
+            action = env.scripted_policy()
+            obs, reward, terminated, truncated, info = env.step(action)
+            episode_reward += reward
+            env.render()
+            
+            if terminated or truncated:
+                print(f"\nEpisode {episode} finished:")
+                print(f"  Gold: {info['gold']}")
+                print(f"  Health: {info['health']}")
+                print(f"  Exit Reached: {info['exit_reached']}")
+                print(f"  Total Raw Reward: {info['total_reward']:.2f}")
+                print(f"  Total Normalized Reward: {episode_reward:.2f}")
+                if 'reward_mean' in info:
+                    print(f"  Reward Mean: {info['reward_mean']:.4f}")
+                    print(f"  Reward Std: {info['reward_std']:.4f}")
+                break
+    
+    # Print final statistics
+    print("\nFinal Reward Statistics:")
+    stats = env.get_reward_stats()
+    for key, value in stats.items():
+        print(f"  {key}: {value:.4f}")
     
     env.close()

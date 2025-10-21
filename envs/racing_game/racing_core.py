@@ -191,7 +191,6 @@ class Track(GameObject):
             if self.next_checkpoint_index == 0:
                 if all(self.checkpoint_states):
                     self.laps_completed += 1
-                    print(f"Lap {self.laps_completed} completed!")
                 
                 # Reset for next lap
                 self.checkpoint_states = [False] * len(self.checkpoints)
@@ -412,7 +411,6 @@ class PolygonTrack:
             if self.next_checkpoint_index == 0:
                 if all(self.checkpoint_states):
                     self.laps_completed += 1
-                    print(f"Lap {self.laps_completed} completed!")
                 
                 self.checkpoint_states = [False] * len(self.checkpoints)
                 self.checkpoint_states[0] = True

@@ -1,0 +1,4 @@
+this wasn't working so it genuinely just gets scrapped
+i suspect the environment was either too complicated or just poorly designed
+so despite spending two days on it I couldn't balance the reward
+function properly
