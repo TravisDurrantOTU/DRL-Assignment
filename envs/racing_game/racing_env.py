@@ -8,7 +8,7 @@ from typing import Optional, Tuple, Dict, Any
 
 class RacingEnv(gym.Env):
     """
-    Gymnasium environment for the polygon racing game.
+    Gymnasium environment for the racing game.
     
     Observation Space:
         - Car speed (normalized)
@@ -21,14 +21,14 @@ class RacingEnv(gym.Env):
         
     Action Space:
         - Discrete(5): [No-op, Forward, Backward, Left, Right]
-        - Or Continuous: [acceleration, steering] in [-1, 1]
+        - Or Continuous: [acceleration, steering] in [-1, 1] (the one I actually use)
         
     Reward:
-        - Progress toward checkpoints
-        - Speed bonus
-        - Staying on track
-        - Lap completion bonus
-        - Penalties for going off-track or collision
+        - Bonus for speed, penalty for being too slow
+        - Bonus for progress
+        - Small bonus for being on track, penalty for going off track
+        - Big bonus for crossing a checkpoint, big bonus for completing a lap
+        - Big bonus for making progress to next checkpoint
     """
     
     metadata = {
@@ -105,7 +105,7 @@ class RacingEnv(gym.Env):
         # [speed, sin(angle), cos(angle), 8x distance_to_edge, 
         #  distance_to_checkpoint, sin(angle_to_cp), cos(angle_to_cp),
         #  checkpoint_progress, 3x prev_checkpoint_distances]
-        obs_dim = 1 + 2 + 8 + 1 + 2 + 1 + 3
+        obs_dim = 1 + 2 + 8 + 1 + 2 + 1 + 3 #17? I think?
         self.observation_space = spaces.Box(
             low=-1.0,
             high=1.0,
@@ -342,7 +342,6 @@ class RacingEnv(gym.Env):
         return distances
     
     def _calculate_reward(self, checkpoint_crossed: bool, off_track: bool) -> float:
-        # No reward, positive or negative, for survival
         reward = 0.0
     
         # Strong movement incentive
@@ -353,11 +352,13 @@ class RacingEnv(gym.Env):
         if abs(self.car.speed) < 1.0:
             reward -= 2.0
         
+        # Penalty for off track reward for on track
         if off_track:
             reward -= 10.0
         else:
             reward += 1.0  # Reward every step on track
         
+        # Bonus for crussing a checkpoint
         if checkpoint_crossed:
             reward += 100.0
             if self.track.next_checkpoint_index == 0:
@@ -435,7 +436,7 @@ class RacingEnv(gym.Env):
             self.screen = None
     
     def scripted_policy(self):
-        """Simple forward-driving policy for jumpstarting useful progress into the warmup."""
+        """Simple forward-driving policy for jumpstarting useful progress into the SAC warmup."""
         if self.action_type == "discrete":
             return 1
         obs = self._get_observation()

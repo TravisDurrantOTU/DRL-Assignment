@@ -9,6 +9,7 @@ from typing import Optional, Tuple, Dict, Any
 class TargetEnv(gym.Env):
     """
     Gymnasium environment for the target collection game.
+    Note that there is an element of randomness to the generation of this one, unlike the racing game.
     
     Observation Space:
         - Agent speed (normalized)
@@ -25,11 +26,12 @@ class TargetEnv(gym.Env):
         - Continuous: [acceleration, steering] in [-1, 1]
         
     Reward:
-        - Positive reward for collecting targets
-        - Small positive reward for moving toward targets
-        - Penalty for hitting obstacles
-        - Small penalty for staying still
+        - Tiny bonus for being alive
+        - Bonus for moving fast, penalty for moving too slow
+        - Big bonus for collecting targets
+        - Bonus for getting closer to targets
         - Bonus for collecting all targets
+        - Penalty for being in contact with an obstacle
     """
     
     metadata = {

@@ -5,170 +5,16 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical, Normal
-from collections import deque
 import matplotlib.pyplot as plt
-from typing import Tuple, List, Optional, Union, TextIO, Dict
-import threading
-from datetime import datetime
+from typing import Tuple, List, Optional
 import os
-import random
 import sys
+import models_core as mc
+import multilogger as ml
 
-class MultiLogger:
-    """A thread-safe logger that can write selectively to multiple outputs."""
-
-    def __init__(self):
-        """
-        Initialize an empty MultiLogger.
-        Use add_output() to register log targets.
-        """
-        self.lock = threading.Lock()
-        self.timestamp: Dict[TextIO, bool] = {}
-        self.outputs: Dict[str, TextIO] = {}
-
-    def add_output(self, name: str, target: Union[str, TextIO], timestamps = False):
-        """
-        Register a new output.
-
-        Args:
-            name (str): Identifier for this output.
-            target (str | TextIO): File path or file-like object.
-            timestamps (bool): Whether to print timestamps on logs written to this output
-        """
-        if isinstance(target, str):
-            stream = open(target, "w", buffering=1, encoding="utf-8")
-        elif hasattr(target, "write"):
-            stream = target
-        else:
-            raise TypeError(f"Invalid output target: {target}")
-        self.outputs[name] = stream
-        self.timestamp[stream] = timestamps
-
-    def remove_output(self, name: str):
-        """Remove and close a specific output."""
-        with self.lock:
-            stream = self.outputs.pop(name, None)
-            if stream and stream not in (sys.stdout, sys.stderr):
-                try:
-                    self.timestamp.pop(stream, None)
-                    stream.close()
-                except Exception:
-                    pass
-
-    def _format(self, output_stream, message: str) -> str:
-        """Apply timestamp formatting if enabled."""
-        if self.timestamp[output_stream]:
-            return f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {message}"
-        return message
-
-    def log(self, message: str, targets: Union[str, List[str], None] = None, end: str = "\n"):
-        """
-        Log a message to one or more outputs.
-
-        Args:
-            message (str): The log message.
-            targets (str | List[str] | None): Output(s) to write to.
-                - str: single output name
-                - list[str]: multiple output names
-                - None: write to all registered outputs
-        """
-
-        if targets is None:
-            selected_streams = list(self.outputs.values())
-        elif isinstance(targets, str):
-            selected_streams = [self.outputs[targets]]
-        else:
-            selected_streams = [self.outputs[t] for t in targets if t in self.outputs]
-
-        with self.lock:
-            for stream in selected_streams:
-                try:
-                    stream.write(self._format(stream, message) + end)
-                    stream.flush()
-                except Exception as e:
-                    sys.stderr.write(f"[MultiLogger Error] {e}\n")
-
-    def close(self):
-        """Close all file outputs except stdout/stderr."""
-        with self.lock:
-            for name, stream in list(self.outputs.items()):
-                if stream not in (sys.stdout, sys.stderr):
-                    try:
-                        stream.close()
-                    except Exception:
-                        pass
-            self.outputs.clear()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-
-log = MultiLogger()
+log = ml.MultiLogger()
 log.add_output("console", sys.stdout, timestamps=True)
 log.log("MultiLogger Initialized")
-
-class ActorCriticNetwork(nn.Module):
-    """Neural network for both policy (actor) and value function (critic)."""
-    
-    def __init__(self, obs_dim: int, act_dim: int, continuous: bool = False, hidden_sizes: List[int] = [256, 256]):
-        super().__init__()
-        self.continuous = continuous
-        
-        # Shared feature extraction layers
-        layers = []
-        prev_size = obs_dim
-        for hidden_size in hidden_sizes:
-            layers.extend([
-                nn.Linear(prev_size, hidden_size),
-                nn.LayerNorm(hidden_size),
-                nn.ReLU(),
-            ])
-            prev_size = hidden_size
-        self.shared = nn.Sequential(*layers)
-        
-        # Actor head (policy)
-        if continuous:
-            self.actor_mean = nn.Linear(prev_size, act_dim)
-            self.actor_logstd = nn.Parameter(torch.zeros(act_dim))
-        else:
-            self.actor = nn.Linear(prev_size, act_dim)
-        
-        # Critic head (value function)
-        self.critic = nn.Linear(prev_size, 1)
-        
-    def forward(self, x: torch.Tensor) -> Tuple:
-        features = self.shared(x)
-        value = self.critic(features)
-        
-        if self.continuous:
-            mean = self.actor_mean(features)
-            std = torch.exp(self.actor_logstd.clamp(-20, 2))
-            return mean, std, value
-        else:
-            logits = self.actor(features)
-            return logits, value
-    
-    def get_action(self, x: torch.Tensor, deterministic: bool = False):
-        with torch.no_grad():
-            if self.continuous:
-                mean, std, value = self.forward(x)
-                if deterministic:
-                    return mean, None, value
-                dist = Normal(mean, std)
-                action = dist.sample()
-                log_prob = dist.log_prob(action).sum(-1)
-                return action, log_prob, value
-            else:
-                logits, value = self.forward(x)
-                dist = Categorical(logits=logits)
-                if deterministic:
-                    action = torch.argmax(logits, dim=-1)
-                else:
-                    action = dist.sample()
-                log_prob = dist.log_prob(action)
-                return action, log_prob, value
 
 class PPOTrainer:
     """PPO trainer for any Gymnasium environment."""
@@ -211,7 +57,7 @@ class PPOTrainer:
             self.device = torch.device(device)
         
         # Initialize network
-        self.network = ActorCriticNetwork(
+        self.network = mc.ActorCriticNetwork(
             self.obs_dim, self.act_dim, self.continuous, hidden_sizes
         ).to(self.device)
         
@@ -500,95 +346,8 @@ class PPOTrainer:
         if display:
             plt.show()
 
-class ReplayBuffer:
-    """Experience replay buffer for off-policy learning."""
-    
-    def __init__(self, capacity: int):
-        self.buffer = deque(maxlen=capacity)
-    
-    def push(self, state, action, reward, next_state, done):
-        self.buffer.append((state, action, reward, next_state, done))
-    
-    def sample(self, batch_size: int):
-        batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
-        return (
-            np.array(states),
-            np.array(actions),
-            np.array(rewards),
-            np.array(next_states),
-            np.array(dones)
-        )
-    
-    def __len__(self):
-        return len(self.buffer)
-
-class Actor(nn.Module):
-    """Gaussian policy network."""
-    
-    def __init__(self, obs_dim: int, act_dim: int, hidden_sizes: List[int], log_std_min: float = -20, log_std_max: float = 2):
-        super().__init__()
-        self.log_std_min = log_std_min
-        self.log_std_max = log_std_max
-        
-        layers = []
-        prev_size = obs_dim
-        for size in hidden_sizes:
-            layers.append(nn.Linear(prev_size, size))
-            layers.append(nn.ReLU())
-            prev_size = size
-        
-        self.backbone = nn.Sequential(*layers)
-        self.mean_head = nn.Linear(prev_size, act_dim)
-        self.log_std_head = nn.Linear(prev_size, act_dim)
-        
-    
-    def forward(self, state):
-        x = self.backbone(state)
-        mean = self.mean_head(x)
-        log_std = self.log_std_head(x)
-        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
-        return mean, log_std
-    
-    def sample(self, state):
-        mean, log_std = self.forward(state)
-        std = log_std.exp()
-        dist = Normal(mean, std)
-        
-        # Reparameterization trick
-        x_t = dist.rsample()
-        action = torch.tanh(x_t)
-        
-        # Calculate log probability with correction for tanh squashing
-        log_prob = dist.log_prob(x_t)
-        log_prob -= torch.log(1 - action.pow(2) + 1e-6)
-        log_prob = log_prob.sum(1, keepdim=True)
-        
-        return action, log_prob, mean
-
-class Critic(nn.Module):
-    """Q-function network."""
-    
-    def __init__(self, obs_dim: int, act_dim: int, hidden_sizes: List[int]):
-        super().__init__()
-        
-        layers = []
-        prev_size = obs_dim + act_dim
-        for size in hidden_sizes:
-            layers.append(nn.Linear(prev_size, size))
-            layers.append(nn.ReLU())
-            prev_size = size
-        layers.append(nn.Linear(prev_size, 1))
-        
-        self.network = nn.Sequential(*layers)
-    
-    def forward(self, state, action):
-        x = torch.cat([state, action], dim=1)
-        return self.network(x)
-
 class SACTrainer:
     """SAC trainer for continuous control Gymnasium environments."""
-    
     def __init__(
         self,
         env_name: str,
@@ -630,11 +389,11 @@ class SACTrainer:
         self.action_bias = self.action_bias.to(self.device)
         
         # Initialize networks
-        self.actor = Actor(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
-        self.critic1 = Critic(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
-        self.critic2 = Critic(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
-        self.critic1_target = Critic(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
-        self.critic2_target = Critic(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
+        self.actor = mc.Actor(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
+        self.critic1 = mc.Critic(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
+        self.critic2 = mc.Critic(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
+        self.critic1_target = mc.Critic(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
+        self.critic2_target = mc.Critic(self.obs_dim, self.act_dim, hidden_sizes).to(self.device)
         
         # Copy parameters to target networks
         self.critic1_target.load_state_dict(self.critic1.state_dict())
@@ -657,7 +416,7 @@ class SACTrainer:
             self.alpha = alpha
         
         # Replay buffer
-        self.replay_buffer = ReplayBuffer(buffer_size)
+        self.replay_buffer = mc.ReplayBuffer(buffer_size)
         
         # Hyperparameters
         self.gamma = gamma
@@ -888,6 +647,7 @@ class SACTrainer:
             'env_name': self.env_name,
             'obs_dim': self.obs_dim,
             'act_dim': self.act_dim,
+            'hidden_sizes': self.hidden_sizes,
         }, save_path)
     
     def load(self, filename: str):
@@ -950,22 +710,7 @@ class SACTrainer:
         if display:
             plt.show()
 
-
 if __name__ == "__main__":
-    racing_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "envs", "racing_game"))
-    dungeon_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "envs", "dungeon_game"))
-    target_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "envs", "target_game"))
-    sys.path.append(racing_dir)
-    from racing_env import RacingEnv
-    sys.path.append(dungeon_dir)
-    from dungeon_env import DungeonEnv
-    sys.path.append(target_dir)
-    from target_env import TargetEnv
-
-    gym.register("RacingEnv", RacingEnv)
-    gym.register("DungeonEnv", DungeonEnv)
-    gym.register("TargetEnv", TargetEnv)
-
 
     trainer = PPOTrainer(
         env_name="RacingEnv",
@@ -996,6 +741,17 @@ if __name__ == "__main__":
         batch_size=256,
         warmup_steps=5000
     )
+
+
+    racing_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "envs", "racing_game"))
+    target_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "envs", "target_game"))
+    sys.path.append(racing_dir)
+    from racing_env import RacingEnv
+    sys.path.append(target_dir)
+    from target_env import TargetEnv
+
+    gym.register("RacingEnv", RacingEnv)
+    gym.register("TargetEnv", TargetEnv)
 
 
     # REMINDER TO ENSURE STEPS PER ROLLOUT IS GREATER THAN MAX EPISODE (ideally a multiple)

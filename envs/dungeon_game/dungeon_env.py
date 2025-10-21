@@ -62,12 +62,7 @@ class DungeonEnv(gym.Env):
         - Box(2): Continuous control for dx, dy acceleration
     
     Reward:
-        - +10 for collecting a coin
-        - -5 for falling into a pit
-        - -10 for losing all health (terminal)
-        - +50 for entering a new room (exploration bonus)
-        - -0.01 per step (time penalty)
-        - +100 for reaching exit (terminal)
+        Insert some kind of crashout GIF this became disgusting and is unusable
     """
     
     metadata = {
