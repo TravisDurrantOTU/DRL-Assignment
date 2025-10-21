@@ -23,6 +23,11 @@ class ModelTester(ABC):
         self.env = environment
         self.hidden_sizes = None
 
+        self.obs_dim = self.env.observation_space.shape[0]
+        self.act_dim = self.env.action_space.shape[0]
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     def test(self, n_episodes : int = 10, visual : bool = False):
         """Function for testing a loaded model.
         
@@ -35,34 +40,37 @@ class ModelTester(ABC):
                 - episode_rewards : List of the rewards per episode.
                 - episode_info : Disgusting list of info dicts.
 
-        """
-
-        if self.network is None:
-            raise ValueError("Model must be intiialized to test it.")
-        
+        """        
         obs, info = self.env.reset()
 
         # Data analysis about to be MISERABLE
         episode_rewards = []
-        episode_infos = [[]*n_episodes]
+        episode_infos = [[] for _ in range(n_episodes)]
+        terminal_infos = []
 
-        for i in range(n_episodes):            
-            action = self.env._get_action(obs)
-            obs, reward, terminated, truncated, info = self.env.step(action)
-            if visual:
-                self.env.render()
+        for i in range(n_episodes):
+            obs, info = self.env.reset()
+            done = False
+            total_reward = 0
 
-            # TODO: Append the data to something
-            episode_rewards.append(reward)
-            episode_infos[i].append(info) # this is gonne be fucking digusting but whatever
+            while not done:
+                if visual:
+                    self.env.render()
 
+                action = self._get_action(obs)
+                obs, reward, terminated, truncated, info = self.env.step(action)
+                total_reward += reward
+                done = terminated or truncated
 
-            if terminated or truncated:
-                print(f"Episode finished: Reward={info['episode_reward']:.2f}, Steps={info['current_step']}")
-                obs, info = self.env.reset()
+                episode_infos[i].append(info)
+
+            print(f"Episode {i+1} finished: total reward = {total_reward:.2f}")
+            episode_rewards.append(total_reward)
+            terminal_infos.append(info)
+
 
         # Unfortunately the info dict is going to depend on the env so can't be standardized
-        return episode_rewards, episode_infos
+        return episode_rewards, episode_infos, terminal_infos
 
 
     @abstractmethod
@@ -73,9 +81,6 @@ class ModelTester(ABC):
     def _get_action(self, state):
         pass
         
-    @abstractmethod
-    def load(self, filename: str):
-        pass
 
 class SACTester(ModelTester):
     def __init__(self, filename : str, environment: gym.Env):
@@ -83,30 +88,26 @@ class SACTester(ModelTester):
             filename (string): The name of the saved model file, saved at ./../models/filename
             environment (gym.env): object to test the environment on, preferably unwrapped.
         """
-        super.__init__(self, filename, environment)
+        super().__init__(filename, environment)
 
         # TODO: SAC specific init
         self.actor = None
+        self.hidden_sizes = [256, 256]
 
         self._load(filename)
 
     def _load(self, filename):
         """Load model from the models folder."""
         load_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", filename))
-        self.checkpoint = torch.load(load_path, map_location=self.device)
-        self.hidden_sizes = self.checkpoint['hidden_sizes']
-
+        self.checkpoint = torch.load(load_path, map_location=self.device, weights_only=False)
         self.actor = mc.Actor(self.obs_dim, self.act_dim, self.hidden_sizes).to(self.device)
-        #self.critic1 = mc.Critic(self.obs_dim, self.act_dim, self.hidden_sizes).to(self.device)
-        #self.critic2 = mc.Critic(self.obs_dim, self.act_dim, self.hidden_sizes).to(self.device)
-        #self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state_dict'])
-        #self.critic1_optimizer.load_state_dict(checkpoint['critic1_optimizer_state_dict'])
-        #self.critic2_optimizer.load_state_dict(checkpoint['critic2_optimizer_state_dict'])
-        #self.episode_rewards = checkpoint['episode_rewards']
+        self.actor.load_state_dict(self.checkpoint['actor_state_dict'])
+        self.actor.eval()
         
     def _get_action(self, state):
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         action, _, _ = self.actor.sample(state_tensor)
+        action = action.squeeze(0).detach().cpu().numpy()
         return action
 
     def test(self, n_episodes : int = 10, visual : bool = False):
@@ -120,25 +121,26 @@ class PPOTester(ModelTester):
             filename (string): The name of the saved model file, saved at ./../models/filename
             environment (gym.env): object to test the environment on, preferably unwrapped.
         """        
-        super.__init__(self, filename, environment)
+        super().__init__(filename, environment)
 
         # TODO: PPO specific init
         self.network = None
+        self.hidden_sizes = [128, 128]
 
         self._load(filename)
 
     def _load(self, filename: str):
         """Load PPO model from the models folder."""
         load_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", filename))
-        checkpoint = torch.load(load_path, map_location=self.device)
+        checkpoint = torch.load(load_path, map_location=self.device, weights_only=False)
+        self.network = mc.ActorCriticNetwork(self.obs_dim, self.act_dim, True, self.hidden_sizes).to(self.device)
         self.network.load_state_dict(checkpoint['network_state_dict'])
-        #self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        #self.episode_rewards = checkpoint['episode_rewards']
 
     def _get_action(self, state):
         """Function to get action from PPO-trained network"""
-        action, _, _ = self.network.get_action(state)
-        
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        action, _, _ = self.network.get_action(state_tensor)
+        action = action.squeeze(0).detach().cpu().numpy()
         return action
 
     def test(self, n_episodes : int = 10, visual : bool = False):
@@ -152,4 +154,14 @@ sys.path.append(target_dir)
 from target_env import TargetEnv
 
 if __name__ == "__main__":
-    print("write actual code in here")
+    renv = RacingEnv(render_mode = 'human')
+    s = SACTester('race_sac_base.pt', renv)
+    p = PPOTester('race_ppo_base.pt', renv)
+    print(s.test(n_episodes=10, visual=True))
+    print(p.test(n_episodes=1, visual=True))
+
+    tenv = TargetEnv(render_mode = 'human')
+    s = SACTester('target_sac_base.pt', tenv)
+    p = PPOTester('target_ppo_base.pt', tenv)
+    s.test(n_episodes=1, visual=True)
+    p.test(n_episodes=1, visual=True)
