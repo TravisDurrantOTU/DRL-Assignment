@@ -377,16 +377,16 @@ class TargetEnv(gym.Env):
         
         # Penalize being too slow
         if abs(self.agent.speed) < 0.5:
-            reward -= 0.3
+            reward -= 1.0
         
         # Target collection (major positive reward)
         if targets_collected > 0:
             reward += 50.0#* targets_collected
         
         # Obstacle collision (penalty)
-        # Will likely multi-tick this so needs to be small
+        # Will likely multi-tick this so doesn't need to be huge
         if hit_obstacle:
-            reward -= 15.0
+            reward -= 25.0
         
         # Progress toward nearest target
         current_nearest_dist = self._get_nearest_target_distance()
