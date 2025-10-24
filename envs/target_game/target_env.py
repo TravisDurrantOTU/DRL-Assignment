@@ -28,9 +28,9 @@ class TargetEnv(gym.Env):
     Reward:
         - Tiny bonus for being alive
         - Bonus for moving fast, penalty for moving too slow
-        - Big bonus for collecting targets
+        - Big progressive bonus for collecting targets
         - Bonus for getting closer to targets
-        - Bonus for collecting all targets
+        - Bonus for collecting all targets (more for less obstacles hit)
         - Penalty for being in contact with an obstacle
     """
     
@@ -52,6 +52,7 @@ class TargetEnv(gym.Env):
         window_size: Tuple[int, int] = (800, 600),
         num_targets: int = 8,
         num_obstacles: int = 6,
+        reward_mode = "sac",
     ):
         """
         Initialize the target collection environment.
@@ -83,7 +84,7 @@ class TargetEnv(gym.Env):
         #  dist_to_nearest_target, sin(angle_to_target), cos(angle_to_target),
         #  8x distance_sensors, targets_remaining,
         #  3x closest_target_distances, 3x closest_obstacle_distances]
-        obs_dim = 1 + 2 + 2 + 1 + 2 + 8 + 1 + 3 + 3
+        obs_dim = 1 + 2 + 2 + 1 + 2 + 16 + 1 + 3 + 3
         self.observation_space = spaces.Box(
             low=-1.0,
             high=1.0,
@@ -92,7 +93,7 @@ class TargetEnv(gym.Env):
         )
         
         # Ray casting for distance sensing
-        self.num_rays = 8
+        self.num_rays = 16
         self.ray_angles = np.linspace(0, 2 * np.pi, self.num_rays, endpoint=False)
         self.max_ray_distance = 200.0
         
@@ -109,6 +110,8 @@ class TargetEnv(gym.Env):
         self.screen = None
         self.clock = None
         self.renderer = None
+
+        self.reward_mode = reward_mode
         
         if render_mode == "human":
             pygame.init()
@@ -124,6 +127,8 @@ class TargetEnv(gym.Env):
         options: Optional[Dict[str, Any]] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Reset the environment to initial state."""
+        # If I can at least get it working in the deterministic case that's better than nothing, TODO: undo determinism
+        seed=10
         super().reset(seed=seed)
         
         # Initialize world and agent
@@ -187,7 +192,7 @@ class TargetEnv(gym.Env):
         
         # Check termination conditions
         self.current_step += 1
-        terminated = all_collected  # Win condition
+        terminated = all_collected or hit_obstacle # Win condition and loss condition
         truncated = self.current_step >= self.max_steps
         
         # Get observation and info
@@ -366,42 +371,72 @@ class TargetEnv(gym.Env):
         return min(dist / 400.0, 1.0)
     
     def _calculate_reward(self, targets_collected: int, hit_obstacle: bool, 
-                         all_collected: bool) -> float:
-        """Calculate reward for current step."""
+                      all_collected: bool) -> float:
+        """Improved reward shaping for stability and exploration."""
         reward = 0.0
-        
-        # Base survival reward (small)
-        reward += 0.1
-        
-        # Speed incentive (encourage movement)
-        speed_ratio = min(abs(self.agent.speed) / self.MAX_SPEED, 0.0)
-        reward += speed_ratio * 0.5
-        
-        # Penalize being too slow
-        if abs(self.agent.speed) < 0.5:
-            reward -= 0.3
-        
-        # Target collection (major positive reward)
+
+        # Base survival reward (small incentive to stay alive)
+
+        # Speed incentive / slowness penalty
+        speed = abs(self.agent.speed)
+        speed_ratio = np.clip(speed / self.MAX_SPEED, 0.0, 1.0)
+       
+        # I tried very hard to be able to keep consistent reward, unfortunately these two algorithms just don't work with the same reward style
+        if self.reward_mode == "ppo":
+            reward += (speed_ratio - 0.5) * 0.2
+            reward += 0.01
+        elif self.reward_mode == "sac":
+            reward += 0.05
+            if speed < 0.3:
+                # Continuous penalty, not harsh step
+                reward -= (0.3 - speed) * 0.5
+            else:
+                # Encourage some forward motion
+                reward += speed_ratio * 0.3
+
+        #  Obstacle proximity penalty (use smooth decay)
+        ray_distances = self._cast_rays()
+        danger_threshold = 0.3
+        proximity_penalty = 0.0
+        for d in ray_distances:
+            if d < danger_threshold:
+                proximity_penalty += (danger_threshold - d) / danger_threshold
+        proximity_penalty = np.tanh(proximity_penalty) * 0.5
+        reward -= proximity_penalty
+
+        # Progress reward (toward nearest target)
+        current_nearest = self._get_nearest_target_distance()
+        progress = self.prev_nearest_target_dist - current_nearest
+        reward += np.tanh(progress * 10.0) * 2.0
+        self.prev_nearest_target_dist = current_nearest
+
+        # Heading alignment reward (steer toward nearest target) 
+        active_targets = self.world.get_active_targets()
+        if active_targets:
+            nearest = min(active_targets,
+                        key=lambda t: math.hypot(t.x - self.agent.x, t.y - self.agent.y))
+            angle_to_target = math.atan2(nearest.y - self.agent.y, nearest.x - self.agent.x)
+            agent_angle_rad = math.radians(self.agent.angle)
+            angle_diff = abs((angle_to_target - agent_angle_rad + math.pi) % (2 * math.pi) - math.pi)
+            heading_alignment = 1 - (angle_diff / math.pi)  # 1 = perfect alignment
+            reward += heading_alignment * 0.2
+
+        # Target collection bonus
         if targets_collected > 0:
-            reward += 50.0#* targets_collected
-        
-        # Obstacle collision (penalty)
-        # Will likely multi-tick this so needs to be small
+            # Slightly scale by remaining targets (more reward early)
+            remaining_ratio = len(active_targets) / max(self.num_targets, 1)
+            reward += 8.0 + 4.0 * (1 - remaining_ratio) + 2.0 * targets_collected
+
+        # Obstacle collision penalty
         if hit_obstacle:
-            reward -= 15.0
-        
-        # Progress toward nearest target
-        current_nearest_dist = self._get_nearest_target_distance()
-        progress = self.prev_nearest_target_dist - current_nearest_dist
-        reward += progress * 20.0  # Reward for getting closer
-        self.prev_nearest_target_dist = current_nearest_dist
-        
-        # Bonus for collecting all targets
+            reward -= 15.0  # moderate, avoid overshadowing other terms
+
+        # Completion bonus
         if all_collected:
-            reward += 200.0
-            # Additional bonus for efficiency (fewer obstacles hit)
-            reward += max(0, 50 - self.agent.obstacles_hit * 10)
-        
+            reward += 100.0
+            # Efficiency bonus for few collisions
+            reward += max(0, 20 - self.agent.obstacles_hit * 5)
+
         return reward
     
     def _get_info(self) -> Dict[str, Any]:

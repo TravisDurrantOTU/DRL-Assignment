@@ -52,6 +52,7 @@ class RacingEnv(gym.Env):
         polygon_points: Optional[list] = None,
         track_width: int = 100,
         track_smoothing: int = 15,
+        reward_mode = None
     ):
         """
         Initialize the racing environment.
@@ -64,6 +65,7 @@ class RacingEnv(gym.Env):
             polygon_points: Custom track polygon (None for default)
             track_width: Width of the racing track
             track_smoothing: Smoothing parameter for track generation
+            reward_mode: Unused but needed to keep code consistent across my envs
         """
         super().__init__()
         
