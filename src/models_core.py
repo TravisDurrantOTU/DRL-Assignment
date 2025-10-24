@@ -67,6 +67,50 @@ class ActorCriticNetwork(nn.Module):
                 log_prob = dist.log_prob(action)
                 return action, log_prob, value
 
+class DDPGActor(nn.Module):
+    """Deterministic policy network for DDPG."""
+    
+    def __init__(self, obs_dim: int, act_dim: int, hidden_sizes: List[int], action_scale: float = 1.0):
+        super().__init__()
+        self.action_scale = action_scale
+        
+        layers = []
+        prev_size = obs_dim
+        for size in hidden_sizes:
+            layers.append(nn.Linear(prev_size, size))
+            layers.append(nn.ReLU())
+            prev_size = size
+        
+        self.backbone = nn.Sequential(*layers)
+        self.action_head = nn.Linear(prev_size, act_dim)
+        
+    def forward(self, state):
+        x = self.backbone(state)
+        action = torch.tanh(self.action_head(x))
+        return action * self.action_scale
+
+
+class DDPGCritic(nn.Module):
+    """Q-function network for DDPG."""
+    
+    def __init__(self, obs_dim: int, act_dim: int, hidden_sizes: List[int]):
+        super().__init__()
+        
+        layers = []
+        prev_size = obs_dim + act_dim
+        for size in hidden_sizes:
+            layers.append(nn.Linear(prev_size, size))
+            layers.append(nn.ReLU())
+            prev_size = size
+        layers.append(nn.Linear(prev_size, 1))
+        
+        self.network = nn.Sequential(*layers)
+    
+    def forward(self, state, action):
+        x = torch.cat([state, action], dim=1)
+        return self.network(x)
+
+
 class ReplayBuffer:
     """Experience replay buffer for off-policy learning."""
     
@@ -86,6 +130,9 @@ class ReplayBuffer:
             np.array(next_states),
             np.array(dones)
         )
+    
+    def size(self):
+        return len(self.buffer)
     
     def __len__(self):
         return len(self.buffer)
