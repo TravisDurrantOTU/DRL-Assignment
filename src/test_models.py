@@ -6,11 +6,6 @@ import sys
 import os
 from abc import abstractmethod, ABC
 
-# TODO: FINISH THIS SHIT
-# TODO: Fuck this really should be an inheritance situation goddammit
-# TODO: Do these actually need to be different? I could just change the dict keys for how it's saved maybe
-# TODO: FIgure this bullshit out
-
 class ModelTester(ABC):
     def __init__(self, filename : str, environment : gym.Env):
         """Args:
@@ -81,7 +76,53 @@ class ModelTester(ABC):
     @abstractmethod
     def _get_action(self, state):
         pass
+
+class A2CTester(ModelTester):
+    def __init__(self, filename: str, environment: gym.Env):
+        """Args:
+            filename (string): The name of the saved model file, saved at ./../models/filename
+            environment (gym.env): object to test the environment on, preferably unwrapped.
+        """
+        super().__init__(filename, environment)
+
+        # A2C specific init
+        self.network = None
+        self.hidden_sizes = [256, 256]
         
+        # Determine if continuous or discrete action space
+        self.continuous = isinstance(self.env.action_space, gym.spaces.Box)
+        if not self.continuous:
+            self.act_dim = self.env.action_space.n
+
+        self._load(filename)
+
+    def _load(self, filename):
+        """Load model from the models folder."""
+        load_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", filename))
+        self.checkpoint = torch.load(load_path, map_location=self.device, weights_only=False)
+        self.network = mc.ActorCriticNetwork(
+            self.obs_dim, self.act_dim, self.continuous, self.hidden_sizes
+        ).to(self.device)
+        self.network.load_state_dict(self.checkpoint['network_state_dict'])
+        self.network.eval()
+        
+    def _get_action(self, state):
+        """Get action from the actor (deterministic for testing)."""
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        
+        with torch.no_grad():
+            action, _, _ = self.network.get_action(state_tensor, deterministic=True)
+        
+        action = action.squeeze(0).cpu().numpy()
+        
+        if not self.continuous:
+            action = int(action)
+        
+        return action
+
+    def test(self, n_episodes: int = 10, visual: bool = False):
+        return super().test(n_episodes=n_episodes, visual=visual)
+
 class DDPGTester(ModelTester):
     def __init__(self, filename: str, environment: gym.Env):
         """Args:
@@ -127,7 +168,6 @@ class DDPGTester(ModelTester):
 
     def test(self, n_episodes: int = 10, visual: bool = False):
         return super().test(n_episodes=n_episodes, visual=visual)
-
 
 class SACTester(ModelTester):
     def __init__(self, filename : str, environment: gym.Env):

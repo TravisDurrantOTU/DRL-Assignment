@@ -7,8 +7,8 @@ import torch
 import gymnasium as gym
 
 # Local imports
-from train import PPOTrainer, SACTrainer, DDPGTrainer
-from test_models import PPOTester, SACTester, DDPGTester
+from train import PPOTrainer, SACTrainer, DDPGTrainer, A2CTrainer
+from test_models import PPOTester, SACTester, DDPGTester, A2CTester
 import multilogger as ml
 
 # Initialize logger
@@ -26,9 +26,6 @@ MODELS_DIR = BASE_DIR / "models"
 LOGS_DIR = BASE_DIR / "logs"
 ENVS_DIR = BASE_DIR / ".." / "envs"
 
-for d in [MODELS_DIR, LOGS_DIR]:
-    os.makedirs(d, exist_ok=True)
-
 def select_algorithm(name: str, env: str):
     name = name.lower()
     if name == "ppo":
@@ -37,8 +34,10 @@ def select_algorithm(name: str, env: str):
         return SACTrainer(env, reward_mode="sac")
     elif name == "ddpg":
         return DDPGTrainer(env, reward_mode="ddpg")
+    elif name == "a2c":
+        return A2CTrainer(env, reward_mode="a2c")
     else:
-        raise ValueError(f"Unknown algorithm '{name}'. Choose from: PPO, SAC, DDPG")
+        raise ValueError(f"Unknown algorithm '{name}'. Choose from: PPO, SAC, DDPG, A2C")
 
 def select_tester(name: str, model_path: str, env: str):
     name = name.lower()
@@ -48,6 +47,8 @@ def select_tester(name: str, model_path: str, env: str):
         return SACTester(model_path, env)
     elif name == "ddpg":
         return DDPGTester(model_path, env)
+    elif name == "a2c":
+        return A2CTester(model_path, env)
     else:
         raise ValueError(f"No tester implemented for algorithm '{name}'")
 

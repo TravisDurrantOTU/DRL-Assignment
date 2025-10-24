@@ -11,18 +11,82 @@ import os
 import sys
 import models_core as mc
 import multilogger as ml
+from abc import ABC, abstractmethod
 
 log = ml.MultiLogger()
 log.add_output("console", sys.stdout, timestamps=True)
 log.log("MultiLogger Initialized")
 
-class PPOTrainer:
+class ModelTrainer(ABC):
+    """Abstract base class for DRL model trainers."""
+
+    def __init__(self, env_name: str, device: str = "auto", reward_mode: str = "default"):
+        # Environment setup
+        self.env = gym.make(env_name)
+        self.env_name = env_name
+        self.env.unwrapped.reward_mode = reward_mode
+
+        # Observation / action space
+        if not isinstance(self.env.observation_space, gym.spaces.Box):
+            raise ValueError("Only Box observation spaces are supported.")
+        self.obs_dim = self.env.observation_space.shape[0]
+
+        # yes this looks redundant but it's because I need to pass this to my env
+        self.continuous = isinstance(self.env.action_space, gym.spaces.Box)
+        self.act_dim = (
+            self.env.action_space.shape[0]
+            if self.continuous
+            else self.env.action_space.n
+        )
+
+        # Device setup
+        if device == "auto":
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = torch.device(device)
+
+        # Training tracking
+        self.episode_rewards = []
+        self.episode_lengths = []
+
+    @abstractmethod
+    def train(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def evaluate(self, n_episodes: int = 10, render: bool = False) -> float:
+        pass
+
+    @abstractmethod
+    def save(self, path: str):
+        pass
+
+    @abstractmethod
+    def load(self, path: str):
+        pass
+
+
+    def _plot_rewards(self, ax, title: str = "Rewards", window: int = 100):
+        """Plot reward curve with moving average."""
+        if len(self.episode_rewards) > 0:
+            ax.plot(self.episode_rewards, alpha=0.3, label='Episode Reward')
+            window = min(window, len(self.episode_rewards))
+            if len(self.episode_rewards) >= window:
+                moving_avg = np.convolve(self.episode_rewards, np.ones(window)/window, mode='valid')
+                ax.plot(range(window - 1, len(self.episode_rewards)), moving_avg, label=f'Moving Avg ({window})')
+            ax.set_xlabel("Episode")
+            ax.set_ylabel("Reward")
+            ax.set_title(title)
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+
+class PPOTrainer(ModelTrainer):
     """PPO trainer for any Gymnasium environment."""
     
     def __init__(
         self,
         env_name: str,
-        hidden_sizes: List[int] = [256, 256],
+        hidden_sizes: List[int] = [128, 128],
         lr: float = 3e-4,
         gamma: float = 0.99,
         gae_lambda: float = 0.95,
@@ -35,28 +99,8 @@ class PPOTrainer:
         device: str = "auto",
         reward_mode: str = "sac"
     ):
-        # Create environment
-        self.env = gym.make(env_name)
-        self.env.unwrapped.reward_mode = reward_mode
-        self.env_name = env_name
-        
-        # Determine observation and action space dimensions
-        if isinstance(self.env.observation_space, gym.spaces.Box):
-            self.obs_dim = self.env.observation_space.shape[0]
-        else:
-            raise ValueError("Only Box observation spaces supported")
-        
-        self.continuous = isinstance(self.env.action_space, gym.spaces.Box)
-        if self.continuous:
-            self.act_dim = self.env.action_space.shape[0]
-        else:
-            self.act_dim = self.env.action_space.n
-        
-        # Setup device
-        if device == "auto":
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
+        # Initialize parent class
+        super().__init__(env_name, device, reward_mode)
         
         # Initialize network
         self.network = mc.ActorCriticNetwork(
@@ -76,10 +120,9 @@ class PPOTrainer:
         self.n_epochs = n_epochs
         
         # Tracking
-        self.episode_rewards = []
-        self.episode_lengths = []
         self.losses = []
 
+        # Setup logging
         log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "ppo_debug.txt"))
         log.add_output("ppo_debug", log_path, timestamps=True)
 
@@ -232,7 +275,6 @@ class PPOTrainer:
         eval_rewards = []
 
         while timesteps < total_timesteps:
-
             # Collect rollout
             rollout = self.collect_rollout(steps_per_rollout)
             timesteps += steps_per_rollout
@@ -253,7 +295,7 @@ class PPOTrainer:
             if timesteps % eval_freq < steps_per_rollout:
                 eval_reward = self.evaluate(n_episodes=5)
                 eval_rewards.append((timesteps, eval_reward))
-                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["ppo_debug, console"])
+                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["ppo_debug", "console"])
         
         # Save model
         if save_path:
@@ -312,22 +354,12 @@ class PPOTrainer:
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.episode_rewards = checkpoint['episode_rewards']
     
-    def plot_training(self, path: Optional[str] = None, display = False):
+    def plot_training(self, path: Optional[str] = None, display: bool = False):
         """Plot training progress."""
         fig, axes = plt.subplots(2, 1, figsize=(10, 8))
         
-        # Episode rewards
-        if len(self.episode_rewards) > 0:
-            axes[0].plot(self.episode_rewards, alpha=0.3, label='Episode Reward')
-            window = min(100, len(self.episode_rewards))
-            if len(self.episode_rewards) >= window:
-                moving_avg = np.convolve(self.episode_rewards, np.ones(window)/window, mode='valid')
-                axes[0].plot(range(window-1, len(self.episode_rewards)), moving_avg, label=f'Moving Avg ({window})')
-            axes[0].set_xlabel('Episode')
-            axes[0].set_ylabel('Reward')
-            axes[0].set_title('Training Rewards')
-            axes[0].legend()
-            axes[0].grid(True, alpha=0.3)
+        # Episode rewards (use parent class method)
+        self._plot_rewards(axes[0], title='Training Rewards', window=100)
         
         # Losses
         if len(self.losses) > 0:
@@ -348,7 +380,7 @@ class PPOTrainer:
         if display:
             plt.show()
 
-class SACTrainer:
+class SACTrainer(ModelTrainer):
     """SAC trainer for continuous control Gymnasium environments."""
     def __init__(
         self,
@@ -365,30 +397,16 @@ class SACTrainer:
         device: str = "auto",
         reward_mode: str = "sac"
     ):
-        # Create environment
-        self.env = gym.make(env_name)
-        self.env.unwrapped.reward_mode = reward_mode
-        self.env_name = env_name
+        # Initialize parent class
+        super().__init__(env_name, device, reward_mode)
         
-        # Determine observation and action space dimensions
-        if isinstance(self.env.observation_space, gym.spaces.Box):
-            self.obs_dim = self.env.observation_space.shape[0]
-        else:
-            raise ValueError("Only Box observation spaces supported")
-        
-        if not isinstance(self.env.action_space, gym.spaces.Box):
+        # Verify continuous action space
+        if not self.continuous:
             raise ValueError("SAC only supports continuous action spaces")
         
-        self.act_dim = self.env.action_space.shape[0]
+        # Action scaling
         self.action_scale = torch.FloatTensor((self.env.action_space.high - self.env.action_space.low) / 2.0)
         self.action_bias = torch.FloatTensor((self.env.action_space.high + self.env.action_space.low) / 2.0)
-        
-        # Setup device
-        if device == "auto":
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
-        
         self.action_scale = self.action_scale.to(self.device)
         self.action_bias = self.action_bias.to(self.device)
         
@@ -429,12 +447,11 @@ class SACTrainer:
         self.warmup_steps = warmup_steps
         
         # Tracking
-        self.episode_rewards = []
-        self.episode_lengths = []
         self.actor_losses = []
         self.critic_losses = []
         self.alpha_losses = []
 
+        # Setup logging
         log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "sac_debug.txt"))
         log.add_output("sac_debug", log_path, timestamps=True)
         
@@ -594,8 +611,9 @@ class SACTrainer:
                 if len(self.episode_rewards) % 10 == 0:
                     recent_rewards = self.episode_rewards[-100:]
                     mean_reward = np.mean(recent_rewards)
-                    log.log(f"Timesteps: {timestep}/{total_timesteps} | "
+                    log.log(f"Timesteps: {timestep}/{total_timesteps} |"
                           f"Episodes: {len(self.episode_rewards)} | "
+                          f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
                           f"Mean Reward (last 100): {mean_reward:.2f}", "console")
             else:
                 state = next_state
@@ -637,9 +655,9 @@ class SACTrainer:
         eval_env.close()
         return total_reward / n_episodes
     
-    def save(self, filename: str):
-        """Save model and training info to the models folder."""
-        save_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", filename))
+    def save(self, path: str):
+        """Save model and training info."""
+        save_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", path))
         torch.save({
             'actor_state_dict': self.actor.state_dict(),
             'critic1_state_dict': self.critic1.state_dict(),
@@ -653,9 +671,9 @@ class SACTrainer:
             'act_dim': self.act_dim,
         }, save_path)
     
-    def load(self, filename: str):
-        """Load model from the models folder."""
-        load_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", filename))
+    def load(self, path: str):
+        """Load model."""
+        load_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", path))
         checkpoint = torch.load(load_path, map_location=self.device, weights_only=False)
         self.actor.load_state_dict(checkpoint['actor_state_dict'])
         self.critic1.load_state_dict(checkpoint['critic1_state_dict'])
@@ -665,22 +683,12 @@ class SACTrainer:
         self.critic2_optimizer.load_state_dict(checkpoint['critic2_optimizer_state_dict'])
         self.episode_rewards = checkpoint['episode_rewards']
     
-    def plot_training(self, path: Optional[str] = None, display = False):
+    def plot_training(self, path: Optional[str] = None, display: bool = False):
         """Plot training progress."""
         fig, axes = plt.subplots(3, 1, figsize=(10, 12))
         
-        # Episode rewards
-        if len(self.episode_rewards) > 0:
-            axes[0].plot(self.episode_rewards, alpha=0.3, label='Episode Reward')
-            window = min(100, len(self.episode_rewards))
-            if len(self.episode_rewards) >= window:
-                moving_avg = np.convolve(self.episode_rewards, np.ones(window)/window, mode='valid')
-                axes[0].plot(range(window-1, len(self.episode_rewards)), moving_avg, label=f'Moving Avg ({window})')
-            axes[0].set_xlabel('Episode')
-            axes[0].set_ylabel('Reward')
-            axes[0].set_title('Training Rewards')
-            axes[0].legend()
-            axes[0].grid(True, alpha=0.3)
+        # Episode rewards (use parent class method)
+        self._plot_rewards(axes[0], title='Training Rewards', window=100)
         
         # Actor losses
         if len(self.actor_losses) > 0:
@@ -715,7 +723,8 @@ class SACTrainer:
 
 # Was gonna do DQN cause I have a predilection for that one, but it can't do continuous action spaces. This is the most similar one.
 # This is very unstable though so we'll see if it actually works much at all.
-class DDPGTrainer:
+# Spoiler alert: it sucks
+class DDPGTrainer(ModelTrainer):
     """DDPG trainer for continuous control Gymnasium environments."""
     def __init__(
         self,
@@ -733,31 +742,18 @@ class DDPGTrainer:
         device: str = "auto",
         reward_mode: str = "sac"
     ):
-        # Create environment
-        self.env = gym.make(env_name)
-        self.env.unwrapped.reward_mode = reward_mode
-        self.env_name = env_name
+        # Initialize parent class
+        super().__init__(env_name, device, reward_mode)
         
-        # Determine observation and action space dimensions
-        if isinstance(self.env.observation_space, gym.spaces.Box):
-            self.obs_dim = self.env.observation_space.shape[0]
-        else:
-            raise ValueError("Only Box observation spaces supported")
-        
-        if not isinstance(self.env.action_space, gym.spaces.Box):
+        # Verify continuous action space
+        if not self.continuous:
             raise ValueError("DDPG only supports continuous action spaces")
         
-        self.act_dim = self.env.action_space.shape[0]
+        # Action scaling
         self.action_high = torch.FloatTensor(self.env.action_space.high)
         self.action_low = torch.FloatTensor(self.env.action_space.low)
         self.action_scale = (self.action_high - self.action_low) / 2.0
         self.action_bias = (self.action_high + self.action_low) / 2.0
-        
-        # Setup device
-        if device == "auto":
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
         
         self.action_high = self.action_high.to(self.device)
         self.action_low = self.action_low.to(self.device)
@@ -790,11 +786,10 @@ class DDPGTrainer:
         self.warmup_steps = warmup_steps
         
         # Tracking
-        self.episode_rewards = []
-        self.episode_lengths = []
         self.actor_losses = []
         self.critic_losses = []
         
+        # Setup logging
         log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "ddpg_debug.txt"))
         log.add_output("ddpg_debug", log_path, timestamps=True)
     
@@ -963,9 +958,9 @@ class DDPGTrainer:
         eval_env.close()
         return total_reward / n_episodes
     
-    def save(self, filename: str):
-        """Save model and training info to the models folder."""
-        save_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", filename))
+    def save(self, path: str):
+        """Save model and training info."""
+        save_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", path))
         torch.save({
             'actor_state_dict': self.actor.state_dict(),
             'critic_state_dict': self.critic.state_dict(),
@@ -977,9 +972,9 @@ class DDPGTrainer:
             'act_dim': self.act_dim,
         }, save_path)
     
-    def load(self, filename: str):
-        """Load model from the models folder."""
-        load_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", filename))
+    def load(self, path: str):
+        """Load model."""
+        load_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", path))
         checkpoint = torch.load(load_path, map_location=self.device, weights_only=False)
         self.actor.load_state_dict(checkpoint['actor_state_dict'])
         self.critic.load_state_dict(checkpoint['critic_state_dict'])
@@ -991,18 +986,8 @@ class DDPGTrainer:
         """Plot training progress."""
         fig, axes = plt.subplots(3, 1, figsize=(10, 12))
         
-        # Episode rewards
-        if len(self.episode_rewards) > 0:
-            axes[0].plot(self.episode_rewards, alpha=0.3, label='Episode Reward')
-            window = min(100, len(self.episode_rewards))
-            if len(self.episode_rewards) >= window:
-                moving_avg = np.convolve(self.episode_rewards, np.ones(window)/window, mode='valid')
-                axes[0].plot(range(window-1, len(self.episode_rewards)), moving_avg, label=f'Moving Avg ({window})')
-            axes[0].set_xlabel('Episode')
-            axes[0].set_ylabel('Reward')
-            axes[0].set_title('Training Rewards')
-            axes[0].legend()
-            axes[0].grid(True, alpha=0.3)
+        # Episode rewards (use parent class method)
+        self._plot_rewards(axes[0], title='Training Rewards', window=100)
         
         # Actor losses
         if len(self.actor_losses) > 0:
@@ -1027,6 +1012,321 @@ class DDPGTrainer:
             axes[2].set_ylabel('Loss')
             axes[2].set_title('Critic Loss')
             axes[2].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        if path:
+            save_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", path))
+            plt.savefig(save_path)
+        if display:
+            plt.show()
+
+# Was not gonna run a 4th but HOLY does DDPG suck bollocks
+# Deterministic? Unstable? BOOOOOOOOOO
+class A2CTrainer(ModelTrainer):
+    """A2C (Advantage Actor-Critic) trainer for any Gymnasium environment."""
+    
+    def __init__(
+        self,
+        env_name: str,
+        hidden_sizes: List[int] = [256, 256],
+        lr: float = 3e-4,
+        gamma: float = 0.99,
+        value_coef: float = 0.5,
+        entropy_coef: float = 0.01,
+        max_grad_norm: float = 0.5,
+        n_steps: int = 1000,
+        device: str = "auto",
+        reward_mode: str = "a2c"
+    ):
+        # Initialize parent class
+        super().__init__(env_name, device, reward_mode)
+        
+        # Initialize network
+        self.network = mc.ActorCriticNetwork(
+            self.obs_dim, self.act_dim, self.continuous, hidden_sizes
+        ).to(self.device)
+        
+        self.optimizer = optim.Adam(self.network.parameters(), lr=lr)
+        
+        # Hyperparameters
+        self.gamma = gamma
+        self.value_coef = value_coef
+        self.entropy_coef = entropy_coef
+        self.max_grad_norm = max_grad_norm
+        self.n_steps = n_steps
+        
+        # Tracking
+        self.losses = []
+
+        # Setup logging
+        log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "a2c_debug.txt"))
+        log.add_output("a2c_debug", log_path, timestamps=True)
+
+    def compute_returns(self, rewards: List[float], next_value: float, dones: List[bool]) -> np.ndarray:
+        """Compute n-step returns."""
+        returns = []
+        R = next_value
+        
+        for reward, done in zip(reversed(rewards), reversed(dones)):
+            R = reward + self.gamma * R * (1 - done)
+            returns.insert(0, R)
+        
+        return np.array(returns)
+
+    def collect_rollout(self) -> dict:
+        """Collect n-step experience from environment."""
+        states, actions, log_probs, rewards, dones, values = [], [], [], [], [], []
+        
+        state, _ = self.env.reset()
+        
+        for _ in range(self.n_steps):
+            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            action, log_prob, value = self.network.get_action(state_tensor)
+            
+            action_np = action.cpu().numpy().squeeze()
+            if not self.continuous:
+                action_np = int(action_np)
+            
+            next_state, reward, terminated, truncated, _ = self.env.step(action_np)
+            done = terminated or truncated
+            
+            states.append(state)
+            actions.append(action.cpu().numpy().squeeze())
+            log_probs.append(log_prob.cpu().item())
+            rewards.append(reward)
+            dones.append(done)
+            values.append(value.cpu().item())
+            
+            state = next_state
+            
+            if done:
+                state, _ = self.env.reset()
+        
+        # Get value of final state for bootstrapping
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            if self.continuous:
+                _, _, next_value = self.network(state_tensor)
+            else:
+                _, next_value = self.network(state_tensor)
+            next_value = next_value.cpu().item()
+        
+        returns = self.compute_returns(rewards, next_value, dones)
+        
+        return {
+            'states': np.array(states),
+            'actions': np.array(actions),
+            'log_probs': np.array(log_probs),
+            'returns': returns,
+            'values': np.array(values),
+        }
+    
+    def update(self, rollout: dict):
+        """Update policy using A2C."""
+        states = torch.FloatTensor(rollout['states']).to(self.device)
+        actions = torch.FloatTensor(rollout['actions']).to(self.device)
+        old_log_probs = torch.FloatTensor(rollout['log_probs']).to(self.device)
+        returns = torch.FloatTensor(rollout['returns']).to(self.device)
+        old_values = torch.FloatTensor(rollout['values']).to(self.device)
+        
+        # Forward pass
+        if self.continuous:
+            mean, std, values = self.network(states)
+            dist = Normal(mean, std)
+            log_probs = dist.log_prob(actions).sum(-1)
+            entropy = dist.entropy().sum(-1).mean()
+        else:
+            logits, values = self.network(states)
+            dist = Categorical(logits=logits)
+            log_probs = dist.log_prob(actions.long())
+            entropy = dist.entropy().mean()
+        
+        # Compute advantages
+        advantages = returns - old_values
+        
+        # Policy loss
+        policy_loss = -(log_probs * advantages.detach()).mean()
+        
+        # Value loss
+        value_loss = ((values.squeeze() - returns) ** 2).mean()
+        
+        # Total loss
+        loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+        
+        # Optimize
+        self.optimizer.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm_(self.network.parameters(), self.max_grad_norm)
+        self.optimizer.step()
+        
+        self.losses.append(loss.item())
+        
+        log.log(f"Entropy: {entropy:.4f}", "a2c_debug")
+        log.log(f"Policy loss: {policy_loss.item():.3f}, Value loss: {value_loss.item():.3f}", "a2c_debug")
+    
+    def train(self, total_timesteps: int, eval_freq: int = 10000, save_path: Optional[str] = None):
+        """Train the agent."""
+        log.log(f"Training on {self.env_name}", ["a2c_debug", "console"])
+        log.log(f"Device: {self.device}", ["a2c_debug", "console"])
+        log.log(f"Observation dim: {self.obs_dim}, Action dim: {self.act_dim}", ["a2c_debug", "console"])
+        log.log(f"Continuous: {self.continuous}", ["a2c_debug", "console"])
+        log.log("-" * 50, ["a2c_debug", "console"])
+        
+        timesteps = 0
+        eval_rewards = []
+        state, _ = self.env.reset()
+        ep_reward = 0
+        ep_length = 0
+
+        while timesteps < total_timesteps:
+            # Collect n-step rollout
+            states, actions, log_probs, rewards, dones, values = [], [], [], [], [], []
+            
+            for _ in range(self.n_steps):
+                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                action, log_prob, value = self.network.get_action(state_tensor)
+                
+                action_np = action.cpu().numpy().squeeze()
+                if not self.continuous:
+                    action_np = int(action_np)
+                
+                next_state, reward, terminated, truncated, _ = self.env.step(action_np)
+                done = terminated or truncated
+                
+                states.append(state)
+                actions.append(action.cpu().numpy().squeeze())
+                log_probs.append(log_prob.cpu().item())
+                rewards.append(reward)
+                dones.append(done)
+                values.append(value.cpu().item())
+                
+                ep_reward += reward
+                ep_length += 1
+                timesteps += 1
+                state = next_state
+                
+                if done:
+                    self.episode_rewards.append(ep_reward)
+                    self.episode_lengths.append(ep_length)
+                    state, _ = self.env.reset()
+                    ep_reward = 0
+                    ep_length = 0
+                
+                if timesteps >= total_timesteps:
+                    break
+            
+            # Get value of final state for bootstrapping
+            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            with torch.no_grad():
+                if self.continuous:
+                    _, _, next_value = self.network(state_tensor)
+                else:
+                    _, next_value = self.network(state_tensor)
+                next_value = next_value.cpu().item()
+            
+            returns = self.compute_returns(rewards, next_value, dones)
+            
+            rollout = {
+                'states': np.array(states),
+                'actions': np.array(actions),
+                'log_probs': np.array(log_probs),
+                'returns': returns,
+                'values': np.array(values),
+            }
+            
+            # Update policy
+            self.update(rollout)
+            
+            # Logging
+            if len(self.episode_rewards) > 0 and len(self.episode_rewards) % 10 == 0:
+                recent_rewards = self.episode_rewards[-100:]
+                mean_reward = np.mean(recent_rewards)
+                log.log(f"Timesteps: {timesteps}/{total_timesteps} | "
+                      f"Episodes: {len(self.episode_rewards)} | "
+                      f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
+                      f"Mean Reward (last 100): {mean_reward:.2f}", ["a2c_debug", "console"])
+            
+            # Evaluation
+            if timesteps % eval_freq < self.n_steps:
+                eval_reward = self.evaluate(n_episodes=5)
+                eval_rewards.append((timesteps, eval_reward))
+                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["a2c_debug", "console"])
+        
+        # Save model
+        if save_path:
+            self.save(save_path)
+            log.log(f"Model saved to {save_path}", "a2c_debug")
+        
+        return eval_rewards
+    
+    def evaluate(self, n_episodes: int = 10, render: bool = False) -> float:
+        """Evaluate the agent."""
+        eval_env = gym.make(self.env_name, render_mode="human" if render else None)
+        total_reward = 0
+        
+        for _ in range(n_episodes):
+            state, _ = eval_env.reset()
+            done = False
+            ep_reward = 0
+            
+            while not done:
+                if render:
+                    eval_env.render()
+                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                action, _, _ = self.network.get_action(state_tensor, deterministic=True)
+                action_np = action.cpu().numpy().squeeze()
+                
+                if not self.continuous:
+                    action_np = int(action_np)
+                
+                state, reward, terminated, truncated, _ = eval_env.step(action_np)
+                done = terminated or truncated
+                ep_reward += reward
+            
+            total_reward += ep_reward
+        
+        eval_env.close()
+        return total_reward / n_episodes
+    
+    def save(self, path: str):
+        """Save model and training info."""
+        save_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", path))
+        torch.save({
+            'network_state_dict': self.network.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'episode_rewards': self.episode_rewards,
+            'env_name': self.env_name,
+            'continuous': self.continuous,
+            'obs_dim': self.obs_dim,
+            'act_dim': self.act_dim,
+        }, save_path)
+    
+    def load(self, path: str):
+        """Load model."""
+        load_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", path))
+        checkpoint = torch.load(load_path, map_location=self.device)
+        self.network.load_state_dict(checkpoint['network_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.episode_rewards = checkpoint['episode_rewards']
+    
+    def plot_training(self, path: Optional[str] = None, display: bool = False):
+        """Plot training progress."""
+        fig, axes = plt.subplots(2, 1, figsize=(10, 8))
+        
+        # Episode rewards (use parent class method)
+        self._plot_rewards(axes[0], title='Training Rewards', window=100)
+        
+        # Losses
+        if len(self.losses) > 0:
+            axes[1].plot(self.losses, alpha=0.3)
+            window = min(100, len(self.losses))
+            if len(self.losses) >= window:
+                moving_avg = np.convolve(self.losses, np.ones(window)/window, mode='valid')
+                axes[1].plot(range(window-1, len(self.losses)), moving_avg)
+            axes[1].set_xlabel('Update Step')
+            axes[1].set_ylabel('Loss')
+            axes[1].set_title('Training Loss')
+            axes[1].grid(True, alpha=0.3)
         
         plt.tight_layout()
         if path:

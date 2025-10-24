@@ -52,7 +52,7 @@ class RacingEnv(gym.Env):
         polygon_points: Optional[list] = None,
         track_width: int = 100,
         track_smoothing: int = 15,
-        reward_mode = None
+        reward_mode = "sac"
     ):
         """
         Initialize the racing environment.
@@ -68,6 +68,8 @@ class RacingEnv(gym.Env):
             reward_mode: Unused but needed to keep code consistent across my envs
         """
         super().__init__()
+
+        self.reward_mode = reward_mode
         
         self.render_mode = render_mode
         self.action_type = action_type
@@ -345,26 +347,104 @@ class RacingEnv(gym.Env):
     
     def _calculate_reward(self, checkpoint_crossed: bool, off_track: bool) -> float:
         reward = 0.0
-    
+
         # Strong movement incentive
         speed_ratio = min(abs(self.car.speed) / self.MAX_SPEED, 1.0)
-        reward += speed_ratio * 1.0  # +1 for moving at max speed
+        
+        if self.reward_mode == "sac":
+            # SAC: Keep working configuration
+            reward += speed_ratio * 1.0
+        elif self.reward_mode == "ppo":
+            # PPO: Slightly reduce to stabilize variance
+            if self.car.speed > 0:
+                reward += speed_ratio * 0.8
+        elif self.reward_mode == "a2c":
+            # A2C: Conservative speed reward
+            reward += speed_ratio * 0.7
+        elif self.reward_mode == "ddpg":
+            # DDPG: Strong speed incentive with smooth gradient
+            # Quadratic for smoother derivative at low speeds
+            reward += (speed_ratio ** 0.8) * 1.2
+        else:
+            reward += speed_ratio * 1.0
         
         # Penalize being stationary
         if abs(self.car.speed) < 1.0:
-            reward -= 2.0
+            if self.reward_mode == "sac":
+                # SAC: Keep your working configuration
+                reward -= 2.0
+            elif self.reward_mode == "ppo":
+                # PPO: Reduce harsh penalty to avoid value spikes
+                reward -= 1.2
+            elif self.reward_mode == "a2c":
+                # A2C: Even gentler penalty
+                reward -= 1.0
+            elif self.reward_mode == "ddpg":
+                # DDPG: Smooth penalty curve
+                speed_deficit = (1.0 - abs(self.car.speed))
+                reward -= speed_deficit * speed_deficit * 1.8
+            else:
+                reward -= 2.0
         
-        # Penalty for off track reward for on track
+        # Penalty for off track / reward for on track
         if off_track:
-            reward -= 10.0
+            if self.reward_mode == "sac":
+                # SAC: Keep your working configuration
+                reward -= 10.0
+            elif self.reward_mode == "ppo":
+                # PPO: Reduce penalty - large negative rewards cause instability
+                reward -= 6.0
+            elif self.reward_mode == "a2c":
+                # A2C: Further reduced to minimize advantage variance
+                reward -= 5.0
+            elif self.reward_mode == "ddpg":
+                # DDPG: Strong penalty for deterministic policy
+                reward -= 12.0
+            else:
+                reward -= 10.0
         else:
-            reward += 1.0  # Reward every step on track
+            if self.reward_mode == "sac":
+                # SAC: Keep your working configuration
+                reward += 1.0
+            elif self.reward_mode == "ppo":
+                # PPO: Reduce on-track reward to lower variance
+                reward += 0.5
+            elif self.reward_mode == "a2c":
+                # A2C: Small consistent reward
+                reward += 0.4
+            elif self.reward_mode == "ddpg":
+                # DDPG: Moderate on-track reward
+                reward += 0.8
+            else:
+                reward += 1.0
         
-        # Bonus for crussing a checkpoint
+        # Bonus for crossing a checkpoint
         if checkpoint_crossed:
-            reward += 100.0
-            if self.track.next_checkpoint_index == 0:
-                reward += 500.0
+            if self.reward_mode == "sac":
+                # SAC: Keep your working configuration
+                reward += 100.0
+                if self.track.next_checkpoint_index == 0:
+                    reward += 500.0
+            elif self.reward_mode == "ppo":
+                # PPO: Reduce sparse rewards to stabilize advantage estimation
+                # Use tanh to bound large rewards
+                reward += 60.0
+                if self.track.next_checkpoint_index == 0:
+                    reward += 250.0
+            elif self.reward_mode == "a2c":
+                # A2C: More conservative sparse rewards
+                reward += 50.0
+                if self.track.next_checkpoint_index == 0:
+                    reward += 200.0
+            elif self.reward_mode == "ddpg":
+                # DDPG: Can handle large sparse rewards well
+                reward += 120.0
+                if self.track.next_checkpoint_index == 0:
+                    reward += 600.0
+            else:
+                reward += 100.0
+                if self.track.next_checkpoint_index == 0:
+                    reward += 500.0
         
         # Progress (scaled up significantly)
         next_checkpoint = self.track.checkpoints[self.track.next_checkpoint_index]
@@ -373,15 +453,30 @@ class RacingEnv(gym.Env):
         
         if len(self.prev_checkpoint_distances) > 0:
             prev_dist = self.prev_checkpoint_distances[-1]
-            progress_reward = (prev_dist - normalized_current) * 50.0
-            reward += progress_reward
+            progress_reward = (prev_dist - normalized_current)
+            
+            if self.reward_mode == "sac":
+                # SAC: Keep your working configuration
+                reward += progress_reward
+            elif self.reward_mode == "ppo":
+                # PPO: Clip progress reward to reduce variance from sudden changes
+                # This is often the main source of instability in racing environments
+                clipped_progress = np.clip(progress_reward, -0.5, 0.5)
+                reward += clipped_progress * 0.8
+            elif self.reward_mode == "a2c":
+                # A2C: More aggressive clipping and scaling
+                clipped_progress = np.clip(progress_reward, -0.4, 0.4)
+                reward += clipped_progress * 0.7
+            elif self.reward_mode == "ddpg":
+                # DDPG: Can use raw progress but scale up for stronger signal
+                reward += progress_reward * 1.3
+            else:
+                reward += progress_reward
         
         self.prev_checkpoint_distances.pop(0)
         self.prev_checkpoint_distances.append(normalized_current)
         
         return reward
-
-
     
     def _get_info(self) -> Dict[str, Any]:
         """Get additional information about the environment state."""
