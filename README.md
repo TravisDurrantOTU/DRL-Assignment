@@ -1,17 +1,20 @@
 # DRL-Assignment
 assignment for topics in cs i
 
-## TODOLIST
-# Before Presentation
-- Ensure testing code functions properly DONE
-- Clean up architecture across the board
-- Factcheck the docstrings to be correct (particularly in the used env.s)
-- Add demo.py file to run making demo smoother (or do something similar like adding args to testing function, list of commands to README, et cetera)
-    - Also makes it more reproducible
+# Commands for the presentation:
+- python main.py --mode demo_racing
+- python main.py --mode test --episodes 1 --algo PPO --env RacingEnv --model pretrained_PPO_racing.pt --render
+- python main.py --mode test --episodes 1 --algo SAC --env RacingEnv --model pretrained_SAC_racing.pt --render
+- python main.py --mode test --episodes 1 --algo SAC --env TargetEnv --model I_AM_GODS_SPECIALEST_BOY.pt --render
+- python main.py --mode test --episodes 1 --algo DDPG --env TargetEnv --model GODS_SPECIALEST_BOY_2.pt --render
+- python main.py --mode test --episodes 1 --algo PPO --env TargetEnv --model GODS_THIRD_FAVORITE.pt --render (if I want to use consistent algorithms for pres)
 
+
+## TODOLIST
 # Before Submission
 - Do data analysis in Jupyter notebooks
 - Ensure README is not dogshit and is an actual project README (probably a quickstart guide) not my tasklist
+- Factcheck the docstrings to be correct (particularly in the used env.s)
 
 # Dependencies
 Gymnasium
@@ -50,6 +53,7 @@ Valid args:
     PPO
     SAC
     DDPG
+    A2C
 Required for testing AND training
 # --steps
 The amount of timesteps to use for training. Note that SAC and DDPG require many less then PPO.
@@ -63,10 +67,10 @@ Flag that when provided causes the program to render the environment. Do not use
 Quickstart Guide:
 1. Either review the code or make sure you trust me. The way I load the models can allow for ARBITRARY CODE EXECUTION. I have not added ACE or RCE exploits to my code, but you should probably make sure of that. Don't trust people on the internet. Also navigate to the previously specified working directory (your abspath)/DRL-Assignment/src
 2. If you want to train new models use the following commands:
-python main.py --mode train --steps 250000 --algo PPO --env RacingEnv --model PPO_racing.pt
-python main.py --mode train --steps 250000 --algo PPO --env TargetEnv --model PPO_target.pt
-python main.py --mode train --steps 50000 --algo SAC --env RacingEnv --model SAC_racing.pt
-python main.py --mode train --steps 50000 --algo SAC --env TargetEnv --model SAC_target.pt
+python main.py --mode train --steps 500000 --algo PPO --env RacingEnv --model PPO_racing.pt
+python main.py --mode train --steps 500000 --algo PPO --env TargetEnv --model PPO_target.pt
+python main.py --mode train --steps 150000 --algo SAC --env RacingEnv --model SAC_racing.pt
+python main.py --mode train --steps 150000 --algo SAC --env TargetEnv --model SAC_target.pt
 python main.py --mode train --steps 100000 --algo DDPG --env RacingEnv --model DDPG_racing.pt
 python main.py --mode train --steps 100000 --algo DDPG --env TargetEnv --model DDPG_target.pt
 python main.py --mode train --steps 300000 --algo A2C --env RacingEnv --model A2C_racing.pt

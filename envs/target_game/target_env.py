@@ -79,6 +79,8 @@ class TargetEnv(gym.Env):
             dtype=np.float32
         )
         
+        self.stagnant_steps = 0
+
         # Observation space
         # [speed, sin(angle), cos(angle), norm_x, norm_y,
         #  dist_to_nearest_target, sin(angle_to_target), cos(angle_to_target),
@@ -94,7 +96,7 @@ class TargetEnv(gym.Env):
         
         # Ray casting for distance sensing
         self.num_rays = 16
-        self.ray_angles = np.linspace(np.pi / 4, 3 * np.pi / 4, self.num_rays-3, endpoint=False)
+        self.ray_angles = np.linspace(np.pi / 6, 5 * np.pi / 6, self.num_rays-3, endpoint=False)
         self.ray_angles = np.append(self.ray_angles, [0, np.pi, 3*np.pi/2])
         self.max_ray_distance = 100.0
         
@@ -135,6 +137,9 @@ class TargetEnv(gym.Env):
         # Initialize world and agent
         from target_core import GameWorld, Agent
         
+        self.stagnant_steps = 0
+        self.max_obstacle_hits = 3
+
         self.world = GameWorld(
             num_targets=self.num_targets,
             num_obstacles=self.num_obstacles,
@@ -193,8 +198,12 @@ class TargetEnv(gym.Env):
         
         # Check termination conditions
         self.current_step += 1
-        terminated = all_collected or hit_obstacle # Win condition and loss condition
+        terminated = all_collected or self.agent.obstacles_hit >= self.max_obstacle_hits # Win condition and loss condition
         truncated = self.current_step >= self.max_steps
+
+        if hit_obstacle:
+            self.agent.x = 400
+            self.agent.y = 300
         
         # Get observation and info
         observation = self._get_observation()
@@ -371,169 +380,82 @@ class TargetEnv(gym.Env):
         dist = math.hypot(nearest.x - self.agent.x, nearest.y - self.agent.y)
         return min(dist / 400.0, 1.0)
     
-    def _calculate_reward(self, targets_collected: int, hit_obstacle: bool, 
-                      all_collected: bool) -> float:
-        """Calculate the reward."""
+    def _calculate_reward(self, targets_collected: int, hit_obstacle: bool, all_collected: bool) -> float:
+        """Calculate the reward with organized, category-based shaping."""
         reward = 0.0
 
-        # Get current state info
-        speed = abs(self.agent.speed)
-        speed_ratio = np.clip(abs(speed) / self.MAX_SPEED, 0.0, 1.0)
+        # State information
         active_targets = self.world.get_active_targets()
-        
-        # PROGRESS REWARD (Primary learning signal)
+
+        # Compute displacement (always positive)
+        displacement = math.hypot(self.agent.x - self.agent.old_x, self.agent.y - self.agent.old_y)
+        displacement_ratio = np.clip(displacement / self.MAX_SPEED, 0.0, 1.0)
+
+        # Primnary rewards
+        # Progress toward nearest target 
         current_nearest = self._get_nearest_target_distance()
         progress = self.prev_nearest_target_dist - current_nearest
-        
-        if self.reward_mode == "ppo":
-            # Moderate progress signal with clipping
-            reward += np.tanh(progress * 10.0) * 2.0
-        elif self.reward_mode == "sac":
-            # Strong, smooth progress signal
-            reward += np.tanh(progress * 12.0) * 3.0
-        elif self.reward_mode == "a2c":
-            # Conservative to reduce variance
-            reward += np.tanh(progress * 8.0) * 1.8
-        elif self.reward_mode == "ddpg":
-            # Very strong progress signal for deterministic policy
-            reward += np.tanh(progress * 15.0) * 3.5
-        
+
+        progress_weights = {"ppo": 5.0, "sac": 6.0, "a2c": 4.0, "ddpg": 7.0}
+        reward += progress * progress_weights[self.reward_mode]
         self.prev_nearest_target_dist = current_nearest
-        
-        # HEADING ALIGNMENT (Directional guidance)
+
+        # Displacement reward (reward for movement)
+        displacement_weights = {"ppo": 0.05, "sac": 0.08, "a2c": 0.04, "ddpg": 0.10}
+        base_bonus = {"ppo": 0.01, "a2c": 0.015}.get(self.reward_mode, 0.0)
+        reward += base_bonus + displacement_ratio * displacement_weights[self.reward_mode]
+
+        # Orientation and alignment
         if active_targets:
-            nearest = min(active_targets,
-                        key=lambda t: math.hypot(t.x - self.agent.x, t.y - self.agent.y))
+            nearest = min(active_targets, key=lambda t: math.hypot(t.x - self.agent.x, t.y - self.agent.y))
             angle_to_target = math.atan2(nearest.y - self.agent.y, nearest.x - self.agent.x)
             agent_angle_rad = math.radians(self.agent.angle)
             angle_diff = abs((angle_to_target - agent_angle_rad + math.pi) % (2 * math.pi) - math.pi)
-            
-            # Use cosine for smooth gradient
             alignment = math.cos(angle_diff)
-            
-            # Scale alignment reward by distance (matters more when close)
-            distance_to_target = math.hypot(nearest.x - self.agent.x, nearest.y - self.agent.y)
-            distance_weight = np.clip(1.0 - distance_to_target / 400.0, 0.2, 1.0)
-            
-            if self.reward_mode == "ppo":
-                reward += alignment * distance_weight * 0.3
-            elif self.reward_mode == "sac":
-                reward += alignment * distance_weight * 0.4
-            elif self.reward_mode == "a2c":
-                reward += alignment * distance_weight * 0.25
-            elif self.reward_mode == "ddpg":
-                reward += alignment * distance_weight * 0.5
-        
-        # SPEED REWARD (Encourage movement) 
-        if self.reward_mode == "ppo":
-            # Small constant + speed bonus
-            reward += 0.02
-            reward += speed_ratio * 0.15
-        elif self.reward_mode == "sac":
-            # Penalize slow movement, reward fast
-            if speed < 0.25:
-                reward -= (0.25 - speed) * 0.8
-            else:
-                reward += speed_ratio * 0.1
-        elif self.reward_mode == "a2c":
-            # Small survival bonus + gentle speed reward
-            reward += 0.03
-            reward += speed_ratio * 0.12
-        elif self.reward_mode == "ddpg":
-            # Strong speed requirement, quadratic penalty for being slow
-            if speed < 0.2:
-                speed_deficit = (0.2 - speed)
-                reward -= speed_deficit * speed_deficit * 4.0
-            else:
-                reward += speed_ratio * 0.3
-        
-        # OBSTACLE PROXIMITY (Safety shaping) 
+
+            alignment_weights = {"ppo": 0.1, "a2c": 0.1, "sac": 0.15, "ddpg": 0.15}
+            reward += alignment * alignment_weights[self.reward_mode]
+
+        # Penalties
+        # Proximity to obstacles
         ray_distances = self._cast_rays()
-        danger_threshold = 20
-        proximity_penalty = 0.0
-        
-        for d in ray_distances:
-            if d < danger_threshold:
-                proximity_penalty += 0.1
-        
-        if self.reward_mode == "ppo":
-            proximity_penalty = np.tanh(proximity_penalty * 0.5) * 0.6
-        elif self.reward_mode == "sac":
-            proximity_penalty = np.tanh(proximity_penalty * 0.5) * 0.5
-        elif self.reward_mode == "a2c":
-            proximity_penalty = np.tanh(proximity_penalty * 0.5) * 0.5
-        elif self.reward_mode == "ddpg":
-            # DDPG needs stronger obstacle avoidance since it's deterministic
-            proximity_penalty = np.tanh(proximity_penalty * 0.8) * 1.0
-        
-        reward -= proximity_penalty
-        
-        # TARGET COLLECTION (Sparse reward)
-        if targets_collected > 0:
-            remaining_ratio = len(active_targets) / max(self.num_targets, 1)
-            
-            if self.reward_mode == "ppo":
-                # Moderate collection bonus
-                base_reward = 10.0
-                progress_bonus = 5.0 * (1 - remaining_ratio)
-                count_bonus = 2.0 * targets_collected
-                reward += base_reward + progress_bonus + count_bonus
-            elif self.reward_mode == "sac":
-                # Strong collection bonus
-                base_reward = 15.0
-                progress_bonus = 8.0 * (1 - remaining_ratio)
-                count_bonus = 3.0 * targets_collected
-                reward += base_reward + progress_bonus + count_bonus
-            elif self.reward_mode == "a2c":
-                # Conservative collection bonus
-                base_reward = 8.0
-                progress_bonus = 4.0 * (1 - remaining_ratio)
-                count_bonus = 1.5 * targets_collected
-                reward += base_reward + progress_bonus + count_bonus
-            elif self.reward_mode == "ddpg":
-                # Very large collection bonus for clear Q-value signal
-                base_reward = 20.0
-                progress_bonus = 10.0 * (1 - remaining_ratio)
-                count_bonus = 5.0 * targets_collected
-                reward += base_reward + progress_bonus + count_bonus
-        
-        # OBSTACLE COLLISION (Terminal penalty) 
-        # Since collision terminates the episode, this is very important
+        danger_threshold = 0.3
+        proximity_penalty = sum(
+            (danger_threshold - d) / danger_threshold for d in ray_distances if d < danger_threshold
+        ) * 0.2
+
+        proximity_weights = {"ppo": 0.05, "sac": 0.04, "a2c": 0.04, "ddpg": 0.08}
+        reward -= proximity_penalty * proximity_weights[self.reward_mode]
+
+        # Direct obstacle collision
         if hit_obstacle:
-            if self.reward_mode == "ppo":
-                # Large penalty but not overwhelming
-                reward -= 30.0
-            elif self.reward_mode == "sac":
-                # Very strong penalty
-                reward -= 50.0
-            elif self.reward_mode == "a2c":
-                # Moderate penalty to avoid value instability
-                reward -= 25.0
-            elif self.reward_mode == "ddpg":
-                # Extremely strong penalty - deterministic policy must avoid
-                reward -= 60.0
-        
-        # COMPLETION BONUS (Episode success)         
+            collision_penalties = {"ppo": 5.0, "sac": 15.0, "a2c": 4.0, "ddpg": 15.0}
+            reward -= collision_penalties[self.reward_mode]
+
+        # Track stagnation (penalty for idling)
+        if displacement < 0.05:
+            self.stagnant_steps += 1
+        else:
+            self.stagnant_steps = 0
+        reward -= 0.02 * np.clip(self.stagnant_steps, 0, 15.0)
+
+        # Target and completion
+        # Target collection
+        if targets_collected > 0:
+            collection_bonus = {"ppo": 15.0, "sac": 25.0, "a2c": 12.0, "ddpg": 25.0}
+            reward += collection_bonus[self.reward_mode] * targets_collected
+
+        # Completion bonus
         if all_collected:
-            if self.reward_mode == "ppo":
-                reward += 150.0
-                # Efficiency bonus based on obstacles hit
-                efficiency_bonus = max(0, 30 - self.agent.obstacles_hit * 10)
-                reward += efficiency_bonus
-            elif self.reward_mode == "sac":
-                reward += 200.0
-                efficiency_bonus = max(0, 40 - self.agent.obstacles_hit * 12)
-                reward += efficiency_bonus
-            elif self.reward_mode == "a2c":
-                reward += 120.0
-                efficiency_bonus = max(0, 25 - self.agent.obstacles_hit * 8)
-                reward += efficiency_bonus
-            elif self.reward_mode == "ddpg":
-                reward += 250.0
-                efficiency_bonus = max(0, 50 - self.agent.obstacles_hit * 15)
-                reward += efficiency_bonus
-        
+            completion_bonus = {"ppo": 100.0, "sac": 120.0, "a2c": 80.0, "ddpg": 150.0}
+            reward += completion_bonus[self.reward_mode]
+
+            # Efficiency bonus (fewer obstacle hits = higher reward)
+            efficiency = max(0, self.max_obstacle_hits - self.agent.obstacles_hit)
+            reward += efficiency * 10.0
+
         return reward
+
     
     def _get_info(self) -> Dict[str, Any]:
         """Get additional information about the environment state."""
