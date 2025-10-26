@@ -17,7 +17,7 @@ class TargetEnv(gym.Env):
         - Agent position (normalized x, y)
         - Distance to nearest active target (normalized)
         - Angle to nearest active target (sin and cos)
-        - Distance sensors (8 rays to obstacles/boundaries)
+        - Distance sensors (16 rays to obstacles/boundaries)
         - Number of active targets remaining (normalized)
         - Distances to closest 3 targets (normalized)
         - Distances to closest 3 obstacles (normalized)

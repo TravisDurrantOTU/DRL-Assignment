@@ -5,21 +5,23 @@ assignment for topics in cs i
 - python main.py --mode demo_racing
 - python main.py --mode test --episodes 1 --algo PPO --env RacingEnv --model pretrained_PPO_racing.pt --render
 - python main.py --mode test --episodes 1 --algo SAC --env RacingEnv --model pretrained_SAC_racing.pt --render
-- python main.py --mode test --episodes 1 --algo SAC --env TargetEnv --model I_AM_GODS_SPECIALEST_BOY.pt --render
-- python main.py --mode test --episodes 1 --algo DDPG --env TargetEnv --model GODS_SPECIALEST_BOY_2.pt --render
-- python main.py --mode test --episodes 1 --algo PPO --env TargetEnv --model GODS_THIRD_FAVORITE.pt --render (if I want to use consistent algorithms for pres)
+- python main.py --mode test --episodes 1 --algo SAC --env TargetEnv --model pretrained_SAC_target.pt --render
+- python main.py --mode test --episodes 1 --algo DDPG --env TargetEnv --model pretrained_DDPG_target.pt --render
+- python main.py --mode test --episodes 1 --algo PPO --env TargetEnv --model pretrained_PPO_racing.pt --render (if I want to use consistent algorithms for pres)
 
 
 ## TODOLIST
 # Before Submission
 - Do data analysis in Jupyter notebooks
-- Ensure README is not dogshit and is an actual project README (probably a quickstart guide) not my tasklist
+- Make it actually save csv's (can just do with MultiLogger?)
+- Ensure README is an actual project README (probably a quickstart guide) not my tasklist
 - Factcheck the docstrings to be correct (particularly in the used env.s)
 
 # Dependencies
 Gymnasium
 pytorch
 numpy
+matplotlib
 
 ## Commands
 A note on notation: () is being used to enclose variable values.
@@ -76,9 +78,7 @@ python main.py --mode train --steps 100000 --algo DDPG --env TargetEnv --model D
 python main.py --mode train --steps 300000 --algo A2C --env RacingEnv --model A2C_racing.pt
 python main.py --mode train --steps 300000 --algo A2C --env TargetEnv --model A2C_target.pt
 Alternatively pretrained ones are available at the following filenames:
-race_ppo_base.pt
-race_sac_base.pt
-FILL THE REST IN WHEN DONE TRAINING THEM TRAVIS
+pretrained_(PPO, SAC, DDPG, A2C)_(racing, target).pt
 3. Take a look at the scripted policies used in the warmups so you can decide they aren't good enough to count as handscripted bot policies and that I don't deserve to be docked marks for including them.
 python main.py --mode demo_racing
 python main.py --mode demo_target
