@@ -11,6 +11,7 @@ import os
 import sys
 import models_core as mc
 import multilogger as ml
+import time
 from abc import ABC, abstractmethod
 
 log = ml.MultiLogger()
@@ -25,6 +26,10 @@ class ModelTrainer(ABC):
         self.env = gym.make(env_name)
         self.env_name = env_name
         self.env.unwrapped.reward_mode = reward_mode
+
+        self.trainlogname = f"training-{self.__class__.__name__}-{time.time()}"
+        trainlogpath = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", f"training-{self.__class__.__name__}-{time.time()}.txt"))
+        log.add_output(self.trainlogname, trainlogpath, timestamps=False)
 
         # Observation / action space
         if not isinstance(self.env.observation_space, gym.spaces.Box):
@@ -64,7 +69,6 @@ class ModelTrainer(ABC):
     @abstractmethod
     def load(self, path: str):
         pass
-
 
     def _plot_rewards(self, ax, title: str = "Rewards", window: int = 100):
         """Plot reward curve with moving average."""
@@ -121,6 +125,9 @@ class PPOTrainer(ModelTrainer):
         
         # Tracking
         self.losses = []
+        self.policy_losses = []
+        self.value_losses = []
+        self.entropies = []
 
         # Setup logging
         log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "ppo_debug.txt"))
@@ -151,7 +158,7 @@ class PPOTrainer(ModelTrainer):
         """Collect experience from environment."""
         states, actions, log_probs, rewards, dones, values = [], [], [], [], [], []
         
-        state, _ = self.env.reset()
+        state, info = self.env.reset()
         ep_reward = 0
         ep_length = 0
         
@@ -163,7 +170,7 @@ class PPOTrainer(ModelTrainer):
             if not self.continuous:
                 action_np = int(action_np)
             
-            next_state, reward, terminated, truncated, _ = self.env.step(action_np)
+            next_state, reward, terminated, truncated, info = self.env.step(action_np)
             done = terminated or truncated
             
             states.append(state)
@@ -216,6 +223,10 @@ class PPOTrainer(ModelTrainer):
         
         # Multiple epochs of updates
         dataset_size = states.shape[0]
+        epoch_policy_losses = []
+        epoch_value_losses = []
+        epoch_entropies = []
+        
         for _ in range(self.n_epochs):
             indices = np.random.permutation(dataset_size)
             
@@ -261,7 +272,15 @@ class PPOTrainer(ModelTrainer):
                 nn.utils.clip_grad_norm_(self.network.parameters(), self.max_grad_norm)
                 self.optimizer.step()
                 
-                self.losses.append(loss.item())
+                epoch_policy_losses.append(policy_loss.item())
+                epoch_value_losses.append(value_loss.item())
+                epoch_entropies.append(entropy.item())
+        
+        # Store average losses for this update
+        self.losses.append(np.mean(epoch_policy_losses) + np.mean(epoch_value_losses))
+        self.policy_losses.append(np.mean(epoch_policy_losses))
+        self.value_losses.append(np.mean(epoch_value_losses))
+        self.entropies.append(np.mean(epoch_entropies))
     
     def train(self, total_timesteps: int, steps_per_rollout: int = 2048, eval_freq: int = 10000, save_path: Optional[str] = None):
         """Train the agent."""
@@ -282,20 +301,35 @@ class PPOTrainer(ModelTrainer):
             # Update policy
             self.update(rollout)
             
-            # Logging
+            # Log metrics to training log
             if len(self.episode_rewards) > 0:
                 recent_rewards = self.episode_rewards[-100:]
                 mean_reward = np.mean(recent_rewards)
-                log.log(f"Timesteps: {timesteps}/{total_timesteps} | "
-                      f"Episodes: {len(self.episode_rewards)} | "
-                      f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
-                      f"Mean Reward (last 100): {mean_reward:.2f}", ["ppo_debug", "console"])
+                
+                metrics_str = (
+                    f"Timestep: {timesteps} | "
+                    f"Episodes: {len(self.episode_rewards)} | "
+                    f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
+                    f"Mean Reward (100): {mean_reward:.2f} | "
+                    f"Policy Loss: {self.policy_losses[-1]:.4f} | "
+                    f"Value Loss: {self.value_losses[-1]:.4f} | "
+                    f"Entropy: {self.entropies[-1]:.4f}"
+                )
+                
+                log.log(metrics_str, self.trainlogname)
+                
+                # Console logging (less frequent)
+                if len(self.episode_rewards) % 10 == 0:
+                    log.log(f"Timesteps: {timesteps}/{total_timesteps} | "
+                          f"Episodes: {len(self.episode_rewards)} | "
+                          f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
+                          f"Mean Reward (last 100): {mean_reward:.2f}", ["ppo_debug", "console"])
             
             # Evaluation
             if timesteps % eval_freq < steps_per_rollout:
                 eval_reward = self.evaluate(n_episodes=5)
                 eval_rewards.append((timesteps, eval_reward))
-                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["ppo_debug", "console"])
+                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["ppo_debug", "console", self.trainlogname])
         
         # Save model
         if save_path:
@@ -450,6 +484,7 @@ class SACTrainer(ModelTrainer):
         self.actor_losses = []
         self.critic_losses = []
         self.alpha_losses = []
+        self.q_values = []
 
         # Setup logging
         log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "sac_debug.txt"))
@@ -518,6 +553,7 @@ class SACTrainer(ModelTrainer):
         self.critic2_optimizer.step()
         
         self.critic_losses.append((critic1_loss.item() + critic2_loss.item()) / 2)
+        self.q_values.append(current_q1.mean().item())
         
         # Update actor
         new_actions, log_probs, _ = self.actor.sample(states)
@@ -604,13 +640,36 @@ class SACTrainer(ModelTrainer):
             if done:
                 self.episode_rewards.append(ep_reward)
                 self.episode_lengths.append(ep_length)
+                
+                # Log metrics to training log
+                recent_rewards = self.episode_rewards[-100:]
+                mean_reward = np.mean(recent_rewards)
+                
+                metrics_str = (
+                    f"Timestep: {timestep} | "
+                    f"Episodes: {len(self.episode_rewards)} | "
+                    f"Episode Reward: {ep_reward:.2f} | "
+                    f"Mean Reward (100): {mean_reward:.2f} | "
+                    f"Episode Length: {ep_length} | "
+                    f"Buffer Size: {len(self.replay_buffer)}"
+                )
+                
+                if len(self.actor_losses) > 0:
+                    metrics_str += f" | Actor Loss: {self.actor_losses[-1]:.4f}"
+                if len(self.critic_losses) > 0:
+                    metrics_str += f" | Critic Loss: {self.critic_losses[-1]:.4f}"
+                if len(self.q_values) > 0:
+                    metrics_str += f" | Mean Q: {self.q_values[-1]:.2f}"
+                if self.auto_entropy and len(self.alpha_losses) > 0:
+                    metrics_str += f" | Alpha: {self.alpha.item():.4f}"
+                
+                log.log(metrics_str, self.trainlogname)
+                
                 state, _ = self.env.reset()
                 ep_reward = 0
                 ep_length = 0
                 
                 if len(self.episode_rewards) % 10 == 0:
-                    recent_rewards = self.episode_rewards[-100:]
-                    mean_reward = np.mean(recent_rewards)
                     log.log(f"Timesteps: {timestep}/{total_timesteps} |"
                           f"Episodes: {len(self.episode_rewards)} | "
                           f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
@@ -622,7 +681,7 @@ class SACTrainer(ModelTrainer):
             if timestep % eval_freq == 0 and timestep > self.warmup_steps:
                 eval_reward = self.evaluate(n_episodes=5)
                 eval_rewards.append((timestep, eval_reward))
-                log.log(f"Evaluation Reward: {eval_reward:.2f}", "console")
+                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["console", self.trainlogname])
 
         
         # Save model
@@ -788,6 +847,7 @@ class DDPGTrainer(ModelTrainer):
         # Tracking
         self.actor_losses = []
         self.critic_losses = []
+        self.q_values = []
         
         # Setup logging
         log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "ddpg_debug.txt"))
@@ -845,6 +905,7 @@ class DDPGTrainer(ModelTrainer):
         self.critic_optimizer.step()
         
         self.critic_losses.append(critic_loss.item())
+        self.q_values.append(current_q.mean().item())
         
         # Update actor
         actor_actions = self.actor(states)
@@ -909,13 +970,34 @@ class DDPGTrainer(ModelTrainer):
             if done:
                 self.episode_rewards.append(ep_reward)
                 self.episode_lengths.append(ep_length)
+                
+                # Log metrics to training log
+                recent_rewards = self.episode_rewards[-100:]
+                mean_reward = np.mean(recent_rewards)
+                
+                metrics_str = (
+                    f"Timestep: {timestep} | "
+                    f"Episodes: {len(self.episode_rewards)} | "
+                    f"Episode Reward: {ep_reward:.2f} | "
+                    f"Mean Reward (100): {mean_reward:.2f} | "
+                    f"Episode Length: {ep_length} | "
+                    f"Buffer Size: {len(self.replay_buffer)}"
+                )
+                
+                if len(self.actor_losses) > 0:
+                    metrics_str += f" | Actor Loss: {self.actor_losses[-1]:.4f}"
+                if len(self.critic_losses) > 0:
+                    metrics_str += f" | Critic Loss: {self.critic_losses[-1]:.4f}"
+                if len(self.q_values) > 0:
+                    metrics_str += f" | Mean Q: {self.q_values[-1]:.2f}"
+                
+                log.log(metrics_str, self.trainlogname)
+                
                 state, _ = self.env.reset()
                 ep_reward = 0
                 ep_length = 0
                 
                 if len(self.episode_rewards) % 10 == 0:
-                    recent_rewards = self.episode_rewards[-100:]
-                    mean_reward = np.mean(recent_rewards)
                     log.log(f"Timesteps: {timestep}/{total_timesteps} | "
                           f"Episodes: {len(self.episode_rewards)} | "
                           f"Mean Reward (last 100): {mean_reward:.2f}", "console")
@@ -926,7 +1008,7 @@ class DDPGTrainer(ModelTrainer):
             if timestep % eval_freq == 0 and timestep > self.warmup_steps:
                 eval_reward = self.evaluate(n_episodes=5)
                 eval_rewards.append((timestep, eval_reward))
-                log.log(f"Evaluation Reward: {eval_reward:.2f}", "console")
+                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["console", self.trainlogname])
         
         # Save model
         if save_path:
@@ -1057,6 +1139,9 @@ class A2CTrainer(ModelTrainer):
         
         # Tracking
         self.losses = []
+        self.policy_losses = []
+        self.value_losses = []
+        self.entropies = []
 
         # Setup logging
         log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "a2c_debug.txt"))
@@ -1160,6 +1245,9 @@ class A2CTrainer(ModelTrainer):
         self.optimizer.step()
         
         self.losses.append(loss.item())
+        self.policy_losses.append(policy_loss.item())
+        self.value_losses.append(value_loss.item())
+        self.entropies.append(entropy.item())
         
         log.log(f"Entropy: {entropy:.4f}", "a2c_debug")
         log.log(f"Policy loss: {policy_loss.item():.3f}, Value loss: {value_loss.item():.3f}", "a2c_debug")
@@ -1208,6 +1296,28 @@ class A2CTrainer(ModelTrainer):
                 if done:
                     self.episode_rewards.append(ep_reward)
                     self.episode_lengths.append(ep_length)
+                    
+                    # Log metrics to training log
+                    recent_rewards = self.episode_rewards[-100:]
+                    mean_reward = np.mean(recent_rewards)
+                    
+                    metrics_str = (
+                        f"Timestep: {timesteps} | "
+                        f"Episodes: {len(self.episode_rewards)} | "
+                        f"Episode Reward: {ep_reward:.2f} | "
+                        f"Mean Reward (100): {mean_reward:.2f} | "
+                        f"Episode Length: {ep_length}"
+                    )
+                    
+                    if len(self.policy_losses) > 0:
+                        metrics_str += f" | Policy Loss: {self.policy_losses[-1]:.4f}"
+                    if len(self.value_losses) > 0:
+                        metrics_str += f" | Value Loss: {self.value_losses[-1]:.4f}"
+                    if len(self.entropies) > 0:
+                        metrics_str += f" | Entropy: {self.entropies[-1]:.4f}"
+                    
+                    log.log(metrics_str, self.trainlogname)
+                    
                     state, _ = self.env.reset()
                     ep_reward = 0
                     ep_length = 0
@@ -1250,7 +1360,7 @@ class A2CTrainer(ModelTrainer):
             if timesteps % eval_freq < self.n_steps:
                 eval_reward = self.evaluate(n_episodes=5)
                 eval_rewards.append((timesteps, eval_reward))
-                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["a2c_debug", "console"])
+                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["a2c_debug", "console", self.trainlogname])
         
         # Save model
         if save_path:
@@ -1345,94 +1455,5 @@ from target_env import TargetEnv
 gym.register("RacingEnv", RacingEnv)
 gym.register("TargetEnv", TargetEnv)
 
-if __name__ == "__main__":
-
-    trainer = PPOTrainer(
-        env_name="RacingEnv",
-        hidden_sizes=[128, 128],
-        lr=3e-4,
-        batch_size=64
-    )
-
-    trainer2 = SACTrainer(
-        env_name="RacingEnv",
-        hidden_sizes=[256, 256],
-        lr=3e-4,
-        batch_size=256,
-        warmup_steps=5000
-    )
-
-    trainer3 = DDPGTrainer(
-        env_name="RacingEnv",
-        hidden_sizes=[256, 256],
-        actor_lr=1e-4,
-        critic_lr=1e-3,
-        warmup_steps=5000
-    )
-
-    trainer4 = PPOTrainer(
-        env_name="TargetEnv",
-        hidden_sizes=[128, 128],
-        lr=3e-4,
-        batch_size=64,
-        reward_mode="ppo"
-    )
-
-    trainer5 = SACTrainer(
-        env_name="TargetEnv",
-        hidden_sizes=[256, 256],
-        lr=3e-4,
-        batch_size=256,
-        warmup_steps=5000,
-        reward_mode="sac"
-    )
-
-    trainer6 = DDPGTrainer(
-        env_name="TargetEnv",
-        hidden_sizes=[256, 256],
-        actor_lr=1e-4,
-        critic_lr=1e-3,
-        warmup_steps=5000,
-        reward_mode="sac" #haven't implemented the DDPG reward stuff yet
-    )
-
-    # REMINDER TO ENSURE STEPS PER ROLLOUT IS GREATER THAN MAX EPISODE (ideally a multiple)
-    # Racing Game - 2500
-    # Dungeon Game - garbage and scrapping it screw getting that to work
-    # Target Game - 2000
-    # I picked these basically at random tbh
-    #trainer.train(total_timesteps=1000000, steps_per_rollout=2500)
-    #trainer2.train(total_timesteps=50000, eval_freq=1000, update_freq=50, gradient_steps=50)
-
-    # 
-    trainer4.train(total_timesteps=1000000, steps_per_rollout=2000)
-    trainer5.train(total_timesteps=50000, eval_freq=1000, update_freq=50, gradient_steps=50)
-
-    # Save them all
-    #trainer.save("race_ppo_cont1.pt")
-    #trainer2.save("race_sac_cont1.pt")
-    trainer4.save("target_ppo_seed10.pt")
-    trainer5.save("target_sac_seed10.pt")
-
-    # Abusing the fact that matlab holds plots so that I can save it to look at in morning
-    #trainer.plot_training(path="race_ppo_cont1.png", display=True)
-    #log.log("\nEvaluating trained agent...", "console")
-    #eval_reward = trainer.evaluate(n_episodes=1, render=True)
-    #log.log(f"Average evaluation reward: {eval_reward:.2f}", "console")
-
-    #trainer2.plot_training(path="race_sac_cont1.png", display=True)
-    #log.log("\nEvaluating trained agent...", "console")
-    #eval_reward = trainer2.evaluate(n_episodes=1, render=True)
-    #log.log(f"Average evaluation reward: {eval_reward:.2f}", "console")
-
-    trainer4.plot_training(path="target_ppo_seed10.png", display=True)
-    log.log("\nEvaluating trained agent...", "console")
-    eval_reward = trainer4.evaluate(n_episodes=1, render=True)
-    log.log(f"Average evaluation reward: {eval_reward:.2f}", "console")
-
-    trainer5.plot_training(path="target_sac_seed10.png", display=True)
-    log.log("\nEvaluating trained agent...", "console")
-    eval_reward = trainer5.evaluate(n_episodes=1, render=True)
-    log.log(f"Average evaluation reward: {eval_reward:.2f}", "console")
 
 log.close()
