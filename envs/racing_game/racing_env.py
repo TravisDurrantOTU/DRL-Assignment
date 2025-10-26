@@ -26,7 +26,7 @@ class RacingEnv(gym.Env):
     Reward:
         - Bonus for speed, penalty for being too slow
         - Bonus for progress
-        - Small bonus for being on track, penalty for going off track
+        - Small bonus for being on track, large penalty for going off track
         - Big bonus for crossing a checkpoint, big bonus for completing a lap
         - Big bonus for making progress to next checkpoint
     """
@@ -65,7 +65,7 @@ class RacingEnv(gym.Env):
             polygon_points: Custom track polygon (None for default)
             track_width: Width of the racing track
             track_smoothing: Smoothing parameter for track generation
-            reward_mode: Unused but needed to keep code consistent across my envs
+            reward_mode: Significantly alters rewards from the environment, tuned for the needs of specific algorithms
         """
         super().__init__()
 
@@ -109,7 +109,7 @@ class RacingEnv(gym.Env):
         # [speed, sin(angle), cos(angle), 8x distance_to_edge, 
         #  distance_to_checkpoint, sin(angle_to_cp), cos(angle_to_cp),
         #  checkpoint_progress, 3x prev_checkpoint_distances]
-        obs_dim = 1 + 2 + 8 + 1 + 2 + 1 + 3 #17? I think?
+        obs_dim = 1 + 2 + 8 + 1 + 2 + 1 + 3 #18
         self.observation_space = spaces.Box(
             low=-1.0,
             high=1.0,

@@ -1,0 +1,109 @@
+Starting training for PPOTrainer on RacingEnv
+Evaluation Reward: -2499.14
+Timestep: 16384 | Episodes: 1 | Recent Reward: -718.78 | Mean Reward (100): -718.78 | Policy Loss: 0.0131 | Value Loss: 21.0488 | Entropy: 2.9138
+Timestep: 18432 | Episodes: 2 | Recent Reward: -480.81 | Mean Reward (100): -599.80 | Policy Loss: 0.0104 | Value Loss: 54.8490 | Entropy: 2.9128
+Timestep: 20480 | Episodes: 3 | Recent Reward: -83.62 | Mean Reward (100): -427.74 | Policy Loss: -0.0007 | Value Loss: 88.6721 | Entropy: 2.9099
+Evaluation Reward: -2499.14
+Timestep: 22528 | Episodes: 5 | Recent Reward: 151.59 | Mean Reward (100): -164.16 | Policy Loss: 0.0031 | Value Loss: 112.2658 | Entropy: 2.9061
+Timestep: 24576 | Episodes: 8 | Recent Reward: 288.74 | Mean Reward (100): 43.91 | Policy Loss: -0.0062 | Value Loss: 186.6804 | Entropy: 2.9042
+Timestep: 26624 | Episodes: 13 | Recent Reward: 483.79 | Mean Reward (100): 216.76 | Policy Loss: -0.0043 | Value Loss: 130.0102 | Entropy: 2.8992
+Timestep: 28672 | Episodes: 15 | Recent Reward: 965.46 | Mean Reward (100): 345.02 | Policy Loss: 0.0099 | Value Loss: 111.9549 | Entropy: 2.8969
+Timestep: 30720 | Episodes: 19 | Recent Reward: 1042.52 | Mean Reward (100): 484.17 | Policy Loss: 0.0088 | Value Loss: 197.7697 | Entropy: 2.8990
+Evaluation Reward: 2955.13
+Timestep: 32768 | Episodes: 21 | Recent Reward: 872.10 | Mean Reward (100): 556.50 | Policy Loss: -0.0006 | Value Loss: 151.9152 | Entropy: 2.8956
+Timestep: 34816 | Episodes: 24 | Recent Reward: 1152.82 | Mean Reward (100): 620.83 | Policy Loss: -0.0030 | Value Loss: 225.3204 | Entropy: 2.8946
+Timestep: 36864 | Episodes: 28 | Recent Reward: 1385.34 | Mean Reward (100): 690.37 | Policy Loss: 0.0023 | Value Loss: 374.3529 | Entropy: 2.8879
+Timestep: 38912 | Episodes: 32 | Recent Reward: 956.75 | Mean Reward (100): 743.18 | Policy Loss: 0.0041 | Value Loss: 477.9140 | Entropy: 2.8800
+Timestep: 40960 | Episodes: 36 | Recent Reward: 1484.83 | Mean Reward (100): 801.32 | Policy Loss: 0.0110 | Value Loss: 445.1825 | Entropy: 2.8784
+Evaluation Reward: 2720.00
+Timestep: 43008 | Episodes: 41 | Recent Reward: 1653.11 | Mean Reward (100): 841.12 | Policy Loss: 0.0090 | Value Loss: 479.5845 | Entropy: 2.8796
+Timestep: 45056 | Episodes: 46 | Recent Reward: 934.78 | Mean Reward (100): 868.62 | Policy Loss: 0.0093 | Value Loss: 767.7980 | Entropy: 2.8795
+Timestep: 47104 | Episodes: 51 | Recent Reward: 1865.63 | Mean Reward (100): 900.53 | Policy Loss: 0.0126 | Value Loss: 980.5038 | Entropy: 2.8811
+Timestep: 49152 | Episodes: 57 | Recent Reward: 609.31 | Mean Reward (100): 919.72 | Policy Loss: 0.0021 | Value Loss: 1007.8980 | Entropy: 2.8835
+Timestep: 51200 | Episodes: 62 | Recent Reward: 1243.77 | Mean Reward (100): 936.75 | Policy Loss: 0.0095 | Value Loss: 857.1885 | Entropy: 2.8843
+Evaluation Reward: 2399.99
+Timestep: 53248 | Episodes: 67 | Recent Reward: 1386.46 | Mean Reward (100): 953.26 | Policy Loss: 0.0027 | Value Loss: 969.2559 | Entropy: 2.8844
+Timestep: 55296 | Episodes: 72 | Recent Reward: 1275.24 | Mean Reward (100): 980.74 | Policy Loss: 0.0094 | Value Loss: 919.3476 | Entropy: 2.8867
+Timestep: 57344 | Episodes: 79 | Recent Reward: 939.22 | Mean Reward (100): 981.73 | Policy Loss: -0.0026 | Value Loss: 1284.7371 | Entropy: 2.8886
+Timestep: 59392 | Episodes: 85 | Recent Reward: 952.86 | Mean Reward (100): 992.10 | Policy Loss: 0.0117 | Value Loss: 1165.6242 | Entropy: 2.8910
+Timestep: 61440 | Episodes: 91 | Recent Reward: 1331.81 | Mean Reward (100): 1000.94 | Policy Loss: 0.0064 | Value Loss: 1449.0256 | Entropy: 2.8928
+Evaluation Reward: 2344.26
+Timestep: 63488 | Episodes: 97 | Recent Reward: 1657.00 | Mean Reward (100): 1007.54 | Policy Loss: 0.0028 | Value Loss: 1421.2596 | Entropy: 2.8996
+Timestep: 65536 | Episodes: 103 | Recent Reward: 1251.56 | Mean Reward (100): 1069.97 | Policy Loss: 0.0029 | Value Loss: 1277.8028 | Entropy: 2.9054
+Timestep: 67584 | Episodes: 111 | Recent Reward: 373.26 | Mean Reward (100): 1106.81 | Policy Loss: 0.0020 | Value Loss: 2447.0307 | Entropy: 2.9096
+Timestep: 69632 | Episodes: 118 | Recent Reward: 1083.62 | Mean Reward (100): 1119.38 | Policy Loss: 0.0081 | Value Loss: 2118.5508 | Entropy: 2.9108
+Timestep: 71680 | Episodes: 123 | Recent Reward: 1776.22 | Mean Reward (100): 1146.21 | Policy Loss: -0.0036 | Value Loss: 1570.6856 | Entropy: 2.9050
+Evaluation Reward: 3789.03
+Timestep: 73728 | Episodes: 127 | Recent Reward: 1849.50 | Mean Reward (100): 1178.94 | Policy Loss: 0.0101 | Value Loss: 1453.9568 | Entropy: 2.9043
+Timestep: 75776 | Episodes: 132 | Recent Reward: 1695.90 | Mean Reward (100): 1209.17 | Policy Loss: 0.0037 | Value Loss: 1503.1994 | Entropy: 2.9033
+Timestep: 77824 | Episodes: 136 | Recent Reward: 1603.25 | Mean Reward (100): 1241.78 | Policy Loss: 0.0142 | Value Loss: 1427.1309 | Entropy: 2.8989
+Timestep: 79872 | Episodes: 144 | Recent Reward: 675.71 | Mean Reward (100): 1223.42 | Policy Loss: 0.0107 | Value Loss: 2677.4859 | Entropy: 2.9049
+Timestep: 81920 | Episodes: 152 | Recent Reward: 1009.23 | Mean Reward (100): 1200.55 | Policy Loss: 0.0329 | Value Loss: 2997.8756 | Entropy: 2.9151
+Evaluation Reward: 1888.41
+Timestep: 83968 | Episodes: 159 | Recent Reward: 1226.93 | Mean Reward (100): 1207.75 | Policy Loss: 0.0147 | Value Loss: 1915.9129 | Entropy: 2.9171
+Timestep: 86016 | Episodes: 170 | Recent Reward: 419.44 | Mean Reward (100): 1134.08 | Policy Loss: 0.0103 | Value Loss: 3395.7862 | Entropy: 2.9229
+Timestep: 88064 | Episodes: 177 | Recent Reward: 1086.07 | Mean Reward (100): 1124.88 | Policy Loss: 0.0018 | Value Loss: 2344.1545 | Entropy: 2.9366
+Timestep: 90112 | Episodes: 184 | Recent Reward: 599.58 | Mean Reward (100): 1122.04 | Policy Loss: 0.0032 | Value Loss: 2215.4994 | Entropy: 2.9381
+Evaluation Reward: 2995.75
+Timestep: 92160 | Episodes: 190 | Recent Reward: 1315.93 | Mean Reward (100): 1138.14 | Policy Loss: 0.0039 | Value Loss: 1890.1736 | Entropy: 2.9638
+Timestep: 94208 | Episodes: 197 | Recent Reward: 1021.21 | Mean Reward (100): 1124.53 | Policy Loss: -0.0034 | Value Loss: 1718.2972 | Entropy: 2.9888
+Timestep: 96256 | Episodes: 203 | Recent Reward: 954.08 | Mean Reward (100): 1118.23 | Policy Loss: -0.0021 | Value Loss: 1906.5913 | Entropy: 2.9874
+Timestep: 98304 | Episodes: 209 | Recent Reward: 1328.92 | Mean Reward (100): 1149.93 | Policy Loss: 0.0025 | Value Loss: 1646.8835 | Entropy: 2.9986
+Timestep: 100352 | Episodes: 214 | Recent Reward: 1698.28 | Mean Reward (100): 1167.44 | Policy Loss: -0.0009 | Value Loss: 1050.4420 | Entropy: 3.0020
+Evaluation Reward: 3045.85
+Timestep: 102400 | Episodes: 221 | Recent Reward: 1457.09 | Mean Reward (100): 1167.41 | Policy Loss: -0.0005 | Value Loss: 2085.7799 | Entropy: 2.9959
+Timestep: 104448 | Episodes: 226 | Recent Reward: 1392.48 | Mean Reward (100): 1151.46 | Policy Loss: 0.0069 | Value Loss: 1412.7870 | Entropy: 3.0058
+Timestep: 106496 | Episodes: 231 | Recent Reward: 1782.62 | Mean Reward (100): 1137.71 | Policy Loss: -0.0028 | Value Loss: 1366.8414 | Entropy: 3.0114
+Timestep: 108544 | Episodes: 236 | Recent Reward: 1173.01 | Mean Reward (100): 1120.16 | Policy Loss: -0.0052 | Value Loss: 1766.7799 | Entropy: 2.9937
+Timestep: 110592 | Episodes: 241 | Recent Reward: 1702.41 | Mean Reward (100): 1138.85 | Policy Loss: 0.0041 | Value Loss: 1474.3364 | Entropy: 2.9958
+Evaluation Reward: 2300.80
+Timestep: 112640 | Episodes: 246 | Recent Reward: 1862.63 | Mean Reward (100): 1186.39 | Policy Loss: 0.0082 | Value Loss: 1942.0514 | Entropy: 3.0102
+Timestep: 114688 | Episodes: 251 | Recent Reward: 1465.55 | Mean Reward (100): 1226.66 | Policy Loss: -0.0021 | Value Loss: 2032.4509 | Entropy: 3.0143
+Timestep: 116736 | Episodes: 256 | Recent Reward: 1247.02 | Mean Reward (100): 1254.18 | Policy Loss: 0.0173 | Value Loss: 2121.7484 | Entropy: 3.0199
+Timestep: 118784 | Episodes: 261 | Recent Reward: 1533.19 | Mean Reward (100): 1291.04 | Policy Loss: 0.0058 | Value Loss: 1967.4353 | Entropy: 3.0304
+Timestep: 120832 | Episodes: 266 | Recent Reward: 2078.56 | Mean Reward (100): 1351.86 | Policy Loss: 0.0065 | Value Loss: 1677.4210 | Entropy: 3.0446
+Evaluation Reward: 2678.57
+Timestep: 122880 | Episodes: 272 | Recent Reward: 1534.92 | Mean Reward (100): 1398.37 | Policy Loss: 0.0011 | Value Loss: 2542.9532 | Entropy: 3.0586
+Timestep: 124928 | Episodes: 277 | Recent Reward: 1529.49 | Mean Reward (100): 1434.44 | Policy Loss: 0.0075 | Value Loss: 2084.0199 | Entropy: 3.0606
+Timestep: 126976 | Episodes: 283 | Recent Reward: 1603.69 | Mean Reward (100): 1459.73 | Policy Loss: 0.0083 | Value Loss: 2294.6291 | Entropy: 3.0486
+Timestep: 129024 | Episodes: 289 | Recent Reward: 1828.74 | Mean Reward (100): 1480.08 | Policy Loss: 0.0110 | Value Loss: 2052.1311 | Entropy: 3.0289
+Timestep: 131072 | Episodes: 295 | Recent Reward: 1922.93 | Mean Reward (100): 1513.71 | Policy Loss: 0.0098 | Value Loss: 2432.3232 | Entropy: 3.0355
+Evaluation Reward: 2267.38
+Timestep: 133120 | Episodes: 302 | Recent Reward: 614.04 | Mean Reward (100): 1513.94 | Policy Loss: 0.0061 | Value Loss: 3561.0572 | Entropy: 3.0423
+Timestep: 135168 | Episodes: 307 | Recent Reward: 1530.64 | Mean Reward (100): 1539.64 | Policy Loss: 0.0031 | Value Loss: 2744.9975 | Entropy: 3.0575
+Timestep: 137216 | Episodes: 311 | Recent Reward: 2063.69 | Mean Reward (100): 1567.78 | Policy Loss: 0.0246 | Value Loss: 1634.1094 | Entropy: 3.0893
+Timestep: 139264 | Episodes: 319 | Recent Reward: 826.08 | Mean Reward (100): 1545.03 | Policy Loss: 0.0001 | Value Loss: 3300.1903 | Entropy: 3.1076
+Timestep: 141312 | Episodes: 324 | Recent Reward: 1581.19 | Mean Reward (100): 1560.68 | Policy Loss: 0.0125 | Value Loss: 2009.1798 | Entropy: 3.1171
+Evaluation Reward: 3002.54
+Timestep: 143360 | Episodes: 330 | Recent Reward: 1900.13 | Mean Reward (100): 1573.69 | Policy Loss: 0.0034 | Value Loss: 2817.1269 | Entropy: 3.1277
+Timestep: 145408 | Episodes: 335 | Recent Reward: 2307.22 | Mean Reward (100): 1582.63 | Policy Loss: 0.0115 | Value Loss: 2620.6332 | Entropy: 3.1394
+Timestep: 147456 | Episodes: 340 | Recent Reward: 2122.67 | Mean Reward (100): 1601.96 | Policy Loss: 0.0021 | Value Loss: 2128.7802 | Entropy: 3.1376
+Timestep: 149504 | Episodes: 345 | Recent Reward: 989.61 | Mean Reward (100): 1607.85 | Policy Loss: 0.0175 | Value Loss: 2861.4998 | Entropy: 3.1327
+Timestep: 151552 | Episodes: 349 | Recent Reward: 2292.28 | Mean Reward (100): 1622.41 | Policy Loss: 0.0110 | Value Loss: 2040.7336 | Entropy: 3.1473
+Evaluation Reward: 3761.85
+Timestep: 153600 | Episodes: 354 | Recent Reward: 1822.52 | Mean Reward (100): 1629.36 | Policy Loss: 0.0022 | Value Loss: 1915.8780 | Entropy: 3.1806
+Timestep: 155648 | Episodes: 360 | Recent Reward: 1371.21 | Mean Reward (100): 1629.22 | Policy Loss: 0.0150 | Value Loss: 2706.3371 | Entropy: 3.1978
+Timestep: 157696 | Episodes: 367 | Recent Reward: 1452.54 | Mean Reward (100): 1600.73 | Policy Loss: 0.0103 | Value Loss: 3329.6563 | Entropy: 3.2086
+Timestep: 159744 | Episodes: 374 | Recent Reward: 1611.54 | Mean Reward (100): 1575.97 | Policy Loss: 0.0082 | Value Loss: 2969.4106 | Entropy: 3.2295
+Timestep: 161792 | Episodes: 381 | Recent Reward: 1142.54 | Mean Reward (100): 1551.47 | Policy Loss: 0.0077 | Value Loss: 3136.2955 | Entropy: 3.2304
+Evaluation Reward: 3621.27
+Timestep: 163840 | Episodes: 388 | Recent Reward: 989.84 | Mean Reward (100): 1532.86 | Policy Loss: 0.0012 | Value Loss: 2604.5507 | Entropy: 3.2154
+Timestep: 165888 | Episodes: 395 | Recent Reward: 1382.97 | Mean Reward (100): 1507.77 | Policy Loss: 0.0004 | Value Loss: 3144.2763 | Entropy: 3.2068
+Timestep: 167936 | Episodes: 400 | Recent Reward: 1450.49 | Mean Reward (100): 1522.99 | Policy Loss: 0.0138 | Value Loss: 2090.8351 | Entropy: 3.2124
+Timestep: 169984 | Episodes: 408 | Recent Reward: 1140.01 | Mean Reward (100): 1483.46 | Policy Loss: 0.0027 | Value Loss: 3318.9830 | Entropy: 3.2149
+Timestep: 172032 | Episodes: 414 | Recent Reward: 1898.91 | Mean Reward (100): 1473.61 | Policy Loss: 0.0100 | Value Loss: 2072.9065 | Entropy: 3.2234
+Evaluation Reward: 3045.73
+Timestep: 174080 | Episodes: 420 | Recent Reward: 1407.64 | Mean Reward (100): 1493.22 | Policy Loss: 0.0107 | Value Loss: 1776.1176 | Entropy: 3.2480
+Timestep: 176128 | Episodes: 425 | Recent Reward: 1396.10 | Mean Reward (100): 1489.01 | Policy Loss: 0.0086 | Value Loss: 1535.2926 | Entropy: 3.2700
+Timestep: 178176 | Episodes: 431 | Recent Reward: 1370.07 | Mean Reward (100): 1464.74 | Policy Loss: 0.0061 | Value Loss: 2333.1205 | Entropy: 3.2795
+Timestep: 180224 | Episodes: 436 | Recent Reward: 1761.91 | Mean Reward (100): 1450.31 | Policy Loss: 0.0050 | Value Loss: 2017.5696 | Entropy: 3.2756
+Evaluation Reward: 2993.00
+Timestep: 182272 | Episodes: 442 | Recent Reward: 1269.87 | Mean Reward (100): 1428.31 | Policy Loss: 0.0147 | Value Loss: 2129.3224 | Entropy: 3.2734
+Timestep: 184320 | Episodes: 451 | Recent Reward: 1742.28 | Mean Reward (100): 1353.53 | Policy Loss: -0.0011 | Value Loss: 4481.8755 | Entropy: 3.2744
+Timestep: 186368 | Episodes: 456 | Recent Reward: 1815.32 | Mean Reward (100): 1352.14 | Policy Loss: 0.0023 | Value Loss: 1641.7263 | Entropy: 3.2817
+Timestep: 188416 | Episodes: 462 | Recent Reward: 1135.46 | Mean Reward (100): 1348.15 | Policy Loss: 0.0080 | Value Loss: 2708.9370 | Entropy: 3.2844
+Timestep: 190464 | Episodes: 469 | Recent Reward: 1431.67 | Mean Reward (100): 1345.77 | Policy Loss: 0.0057 | Value Loss: 2711.1561 | Entropy: 3.2884
+Evaluation Reward: 3367.13
+Timestep: 192512 | Episodes: 476 | Recent Reward: 993.54 | Mean Reward (100): 1358.81 | Policy Loss: 0.0053 | Value Loss: 3373.9113 | Entropy: 3.3097
+Timestep: 194560 | Episodes: 483 | Recent Reward: 1233.43 | Mean Reward (100): 1358.55 | Policy Loss: 0.0087 | Value Loss: 3261.9002 | Entropy: 3.3499
+Timestep: 196608 | Episodes: 490 | Recent Reward: 1453.14 | Mean Reward (100): 1355.13 | Policy Loss: 0.0289 | Value Loss: 2688.1977 | Entropy: 3.3737

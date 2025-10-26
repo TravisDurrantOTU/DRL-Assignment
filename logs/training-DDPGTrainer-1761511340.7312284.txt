@@ -1,0 +1,15 @@
+Starting training for DDPGTrainer on RacingEnv
+Timestep: 1349 | Episodes: 1 | Episode Reward: -462.20 | Mean Reward (100): -462.20 | Episode Length: 1349 | Buffer Size: 1349 | Actor Loss: 1.0720 | Critic Loss: 54.4829 | Mean Q: -1.72
+Timestep: 1605 | Episodes: 2 | Episode Reward: 540.51 | Mean Reward (100): 39.15 | Episode Length: 256 | Buffer Size: 1605 | Actor Loss: 0.7875 | Critic Loss: 2.9114 | Mean Q: -1.33
+Timestep: 1909 | Episodes: 3 | Episode Reward: 722.10 | Mean Reward (100): 266.80 | Episode Length: 304 | Buffer Size: 1909 | Actor Loss: -2.1591 | Critic Loss: 31.5652 | Mean Q: 0.96
+Timestep: 2218 | Episodes: 4 | Episode Reward: 732.43 | Mean Reward (100): 383.21 | Episode Length: 309 | Buffer Size: 2218 | Actor Loss: -2.9815 | Critic Loss: 52.3299 | Mean Q: 3.27
+Timestep: 2511 | Episodes: 5 | Episode Reward: 590.63 | Mean Reward (100): 424.69 | Episode Length: 293 | Buffer Size: 2511 | Actor Loss: -7.2887 | Critic Loss: 14.0420 | Mean Q: 6.85
+Timestep: 2833 | Episodes: 6 | Episode Reward: 755.62 | Mean Reward (100): 479.85 | Episode Length: 322 | Buffer Size: 2833 | Actor Loss: -11.7589 | Critic Loss: 3.5943 | Mean Q: 10.23
+Timestep: 3163 | Episodes: 7 | Episode Reward: 759.43 | Mean Reward (100): 519.79 | Episode Length: 330 | Buffer Size: 3163 | Actor Loss: -13.3319 | Critic Loss: 5.0350 | Mean Q: 12.98
+Timestep: 3446 | Episodes: 8 | Episode Reward: 576.09 | Mean Reward (100): 526.83 | Episode Length: 283 | Buffer Size: 3446 | Actor Loss: -18.0610 | Critic Loss: 14.6240 | Mean Q: 16.33
+Timestep: 3732 | Episodes: 9 | Episode Reward: 581.60 | Mean Reward (100): 532.91 | Episode Length: 286 | Buffer Size: 3732 | Actor Loss: -17.1076 | Critic Loss: 5.5315 | Mean Q: 15.67
+Timestep: 4013 | Episodes: 10 | Episode Reward: 574.52 | Mean Reward (100): 537.07 | Episode Length: 281 | Buffer Size: 4013 | Actor Loss: -22.2238 | Critic Loss: 2.8103 | Mean Q: 21.77
+Timestep: 4296 | Episodes: 11 | Episode Reward: 577.98 | Mean Reward (100): 540.79 | Episode Length: 283 | Buffer Size: 4296 | Actor Loss: -27.5695 | Critic Loss: 1.6985 | Mean Q: 26.19
+Timestep: 4579 | Episodes: 12 | Episode Reward: 577.58 | Mean Reward (100): 543.86 | Episode Length: 283 | Buffer Size: 4579 | Actor Loss: -26.0353 | Critic Loss: 2.4592 | Mean Q: 25.73
+Timestep: 4875 | Episodes: 13 | Episode Reward: 594.24 | Mean Reward (100): 547.73 | Episode Length: 296 | Buffer Size: 4875 | Actor Loss: -29.9734 | Critic Loss: 2.8609 | Mean Q: 28.61
+Training complete.

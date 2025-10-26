@@ -26,12 +26,14 @@ class TargetEnv(gym.Env):
         - Continuous: [acceleration, steering] in [-1, 1]
         
     Reward:
-        - Tiny bonus for being alive
+        - Tiny bonus for being alive (PPO, A2C)
         - Bonus for moving fast, penalty for moving too slow
         - Big progressive bonus for collecting targets
-        - Bonus for getting closer to targets
+        - Bonus for progress towards targets
         - Bonus for collecting all targets (more for less obstacles hit)
         - Penalty for being in contact with an obstacle
+        - Penalty for rays being in contact with obstacles
+        - Penalty for remaining motionless
     """
     
     metadata = {
@@ -84,7 +86,7 @@ class TargetEnv(gym.Env):
         # Observation space
         # [speed, sin(angle), cos(angle), norm_x, norm_y,
         #  dist_to_nearest_target, sin(angle_to_target), cos(angle_to_target),
-        #  8x distance_sensors, targets_remaining,
+        #  16x distance_sensors, targets_remaining,
         #  3x closest_target_distances, 3x closest_obstacle_distances]
         obs_dim = 1 + 2 + 2 + 1 + 2 + 16 + 1 + 3 + 3
         self.observation_space = spaces.Box(
@@ -252,7 +254,7 @@ class TargetEnv(gym.Env):
         else:
             obs.extend([1.0, 0.0, 0.0])  # No targets left
         
-        # 5. Distance sensors (8 rays)
+        # 5. Distance sensors (16 rays)
         ray_distances = self._cast_rays()
         obs.extend(ray_distances)
         
