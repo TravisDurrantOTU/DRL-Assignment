@@ -1,0 +1,2 @@
+PPO Tester initialized - Continuous: True, Hidden sizes: [128, 128]
+Loading model from: C:\Users\karat\Documents\topics_in_cs1\DRL-Assignment\models\pretrained_PPO_racing.pt

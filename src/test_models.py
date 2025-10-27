@@ -51,7 +51,8 @@ class ModelTester(ABC):
         # Log test start
         log.log("=" * 70, self.testlogname)
         log.log(f"Testing Model: {self.filename}", [self.testlogname, "console"])
-        log.log(f"Environment: {self.env.spec.id if hasattr(self.env, 'spec') else 'Unknown'}", [self.testlogname, "console"])
+        env_name = getattr(getattr(self.env, "spec", None), "id", "Unknown")
+        log.log(f"Environment: {env_name}", [self.testlogname, "console"])
         log.log(f"Number of Episodes: {n_episodes}", [self.testlogname, "console"])
         log.log(f"Device: {self.device}", [self.testlogname, "console"])
         log.log("=" * 70, self.testlogname)

@@ -1,0 +1,20 @@
+PPO Tester initialized - Continuous: True, Hidden sizes: [128, 128]
+Loading model from: c:\Users\karat\Documents\topics_in_cs1\DRL-Assignment\models\pretrained_PPO_target.pt
+Model loaded successfully
+======================================================================
+Testing Model: pretrained_PPO_target.pt
+Environment: Unknown
+Number of Episodes: 10
+Device: cpu
+======================================================================
+Episode 1/10 | Reward: 426.95 | Length: 390 | current_step: 390
+episode_reward: 257.4044410223829
+agent_position: (719.1125915041388, 482.8829117811734)
+agent_speed: 5
+agent_angle: 107.00548663139341
+targets_collected: 1
+targets_remaining: 0
+obstacles_hit: 0
+hit_obstacle: False
+all_collected: True
+

@@ -1,0 +1,11 @@
+PPO Tester initialized - Continuous: True, Hidden sizes: [128, 128]
+Loading model from: c:\Users\karat\Documents\topics_in_cs1\DRL-Assignment\models\pretrained_PPO_target.pt
+Model loaded successfully
+======================================================================
+Testing Model: pretrained_PPO_target.pt
+======================================================================
+Testing Model: pretrained_PPO_target.pt
+======================================================================
+Testing Model: pretrained_PPO_target.pt
+======================================================================
+Testing Model: pretrained_PPO_target.pt
