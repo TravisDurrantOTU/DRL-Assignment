@@ -1,3 +1,0 @@
-A2C Tester initialized - Continuous: True, Hidden sizes: [256, 256]
-Loading model from: c:\Users\karat\Documents\topics_in_cs1\DRL-Assignment\models\pretrained_A2C_racing.pt
-Model loaded successfully

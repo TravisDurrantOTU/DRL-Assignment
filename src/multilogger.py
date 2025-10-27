@@ -4,6 +4,8 @@ from typing import List, Union, Dict, TextIO
 import sys
 
 # I hate cohesion i wanna just stuff this in my models core file instead of giving it its own file
+# Actually rather proud of this thing... despite the fact I don't even use it anymore
+# It was useful for one line-ing a print to console and debug file though
 class MultiLogger:
     """A thread-safe logger that can write selectively to multiple outputs."""
 

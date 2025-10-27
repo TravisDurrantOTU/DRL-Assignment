@@ -1,22 +1,87 @@
-import gymnasium as gym
+import json
+import os
+from typing import Dict, Any, Optional, List, Tuple
+import time
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.distributions import Categorical, Normal
-import matplotlib.pyplot as plt
-from typing import Tuple, List, Optional
-import os
-import sys
-import models_core as mc
-import multilogger as ml
-import time
+from torch.distributions import Normal, Categorical
+import gymnasium as gym
 from abc import ABC, abstractmethod
+import models_core as mc
 
-log = ml.MultiLogger()
-log.add_output("console", sys.stdout, timestamps=True)
-log.log("MultiLogger Initialized")
+import multilogger
+log = multilogger.MultiLogger()
+
+class TrainingMetricsLogger:
+    """Handles JSON logging of training metrics."""
+    
+    def __init__(self, trainer_name: str, env_name: str):
+        self.trainer_name = trainer_name
+        self.start_time = time.time()
+        self.json_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "logs", 
+                        f"metrics-{trainer_name}-{int(self.start_time)}.json")
+        )
+        
+        self.metrics = {
+            "trainer": trainer_name,
+            "environment": env_name,
+            "start_time": self.start_time,
+            "episodes": [],
+            "evaluations": []
+        }
+        
+        # Create logs directory if it doesn't exist
+        os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
+    
+    def log_episode(self, timestep: int, episode_num: int, reward: float, 
+                    length: int, mean_reward_100: float, **kwargs):
+        """Log episode metrics."""
+        episode_data = {
+            "timestep": timestep,
+            "episode": episode_num,
+            "reward": reward,
+            "length": length,
+            "mean_reward_100": mean_reward_100,
+            "elapsed_time": time.time() - self.start_time
+        }
+        # Add any additional metrics passed as kwargs
+        episode_data.update(kwargs)
+        
+        self.metrics["episodes"].append(episode_data)
+        self._save()
+    
+    def log_evaluation(self, timestep: int, mean_reward: float, n_episodes: int = 5):
+        """Log evaluation metrics."""
+        eval_data = {
+            "timestep": timestep,
+            "mean_reward": mean_reward,
+            "n_episodes": n_episodes,
+            "elapsed_time": time.time() - self.start_time
+        }
+        
+        self.metrics["evaluations"].append(eval_data)
+        self._save()
+    
+    def log_final_stats(self, total_episodes: int, total_timesteps: int, 
+                       final_mean_reward: float):
+        """Log final training statistics."""
+        self.metrics["final_stats"] = {
+            "total_episodes": total_episodes,
+            "total_timesteps": total_timesteps,
+            "final_mean_reward_100": final_mean_reward,
+            "total_time": time.time() - self.start_time
+        }
+        self._save()
+    
+    def _save(self):
+        """Save metrics to JSON file."""
+        with open(self.json_path, 'w') as f:
+            json.dump(self.metrics, f, indent=2)
+
 
 class ModelTrainer(ABC):
     """Abstract base class for DRL model trainers."""
@@ -27,16 +92,14 @@ class ModelTrainer(ABC):
         self.env_name = env_name
         self.env.unwrapped.reward_mode = reward_mode
 
-        self.trainlogname = f"training-{self.__class__.__name__}-{time.time()}"
-        trainlogpath = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", f"training-{self.__class__.__name__}-{time.time()}.txt"))
-        log.add_output(self.trainlogname, trainlogpath, timestamps=False)
+        # Initialize metrics logger
+        self.metrics_logger = TrainingMetricsLogger(self.__class__.__name__, env_name)
 
         # Observation / action space
         if not isinstance(self.env.observation_space, gym.spaces.Box):
             raise ValueError("Only Box observation spaces are supported.")
         self.obs_dim = self.env.observation_space.shape[0]
 
-        # yes this looks redundant but it's because I need to pass this to my env
         self.continuous = isinstance(self.env.action_space, gym.spaces.Box)
         self.act_dim = (
             self.env.action_space.shape[0]
@@ -84,6 +147,7 @@ class ModelTrainer(ABC):
             ax.legend()
             ax.grid(True, alpha=0.3)
 
+
 class PPOTrainer(ModelTrainer):
     """PPO trainer for any Gymnasium environment."""
     
@@ -106,7 +170,7 @@ class PPOTrainer(ModelTrainer):
         # Initialize parent class
         super().__init__(env_name, device, reward_mode)
         
-        # Initialize network
+        # Initialize network (assuming mc is imported elsewhere)
         self.network = mc.ActorCriticNetwork(
             self.obs_dim, self.act_dim, self.continuous, hidden_sizes
         ).to(self.device)
@@ -128,10 +192,6 @@ class PPOTrainer(ModelTrainer):
         self.policy_losses = []
         self.value_losses = []
         self.entropies = []
-
-        # Setup logging
-        log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "ppo_debug.txt"))
-        log.add_output("ppo_debug", log_path, timestamps=True)
 
         
     def compute_gae(self, rewards: List[float], values: List[float], dones: List[bool]) -> Tuple[np.ndarray, np.ndarray]:
@@ -193,14 +253,6 @@ class PPOTrainer(ModelTrainer):
                 state = next_state
         
         advantages, returns = self.compute_gae(rewards, values, dones)
-        
-        log.log({
-            'states': np.array(states),
-            'actions': np.array(actions),
-            'log_probs': np.array(log_probs),
-            'advantages': advantages,
-            'returns': returns,
-        }, 'ppo_debug')
 
         return {
             'states': np.array(states),
@@ -251,8 +303,6 @@ class PPOTrainer(ModelTrainer):
                     dist = Categorical(logits=logits)
                     log_probs = dist.log_prob(batch_actions.long())
                     entropy = dist.entropy().mean()
-
-                log.log(f"Entropy: {entropy}", "ppo_debug")
                 
                 # Policy loss (PPO clipped objective)
                 ratio = torch.exp(log_probs - batch_old_log_probs)
@@ -282,16 +332,18 @@ class PPOTrainer(ModelTrainer):
         self.value_losses.append(np.mean(epoch_value_losses))
         self.entropies.append(np.mean(epoch_entropies))
     
-    def train(self, total_timesteps: int, steps_per_rollout: int = 2048, eval_freq: int = 10000, save_path: Optional[str] = None):
+    def train(self, total_timesteps: int, steps_per_rollout: int = 2048, 
+              eval_freq: int = 10000, save_path: Optional[str] = None):
         """Train the agent."""
-        log.log(f"Training on {self.env_name}", ["ppo_debug", "console"])
-        log.log(f"Device: {self.device}", ["ppo_debug", "console"])
-        log.log(f"Observation dim: {self.obs_dim}, Action dim: {self.act_dim}", ["ppo_debug", "console"])
-        log.log(f"Continuous: {self.continuous}", ["ppo_debug", "console"])
-        log.log("-" * 50, ["ppo_debug", "console"])
+        log.log(f"Training PPOTrainer on {self.env_name}", "console")
+        log.log(f"Device: {self.device}", "console")
+        log.log(f"Observation dim: {self.obs_dim}, Action dim: {self.act_dim}", "console")
+        log.log(f"Continuous: {self.continuous}", "console")
+        log.log("-" * 50, "console")
         
         timesteps = 0
         eval_rewards = []
+        last_logged_episode = 0
 
         while timesteps < total_timesteps:
             # Collect rollout
@@ -301,40 +353,53 @@ class PPOTrainer(ModelTrainer):
             # Update policy
             self.update(rollout)
             
-            # Log metrics to training log
-            if len(self.episode_rewards) > 0:
+            # Log metrics for new episodes
+            if len(self.episode_rewards) > last_logged_episode:
                 recent_rewards = self.episode_rewards[-100:]
                 mean_reward = np.mean(recent_rewards)
                 
-                metrics_str = (
-                    f"Timestep: {timesteps} | "
-                    f"Episodes: {len(self.episode_rewards)} | "
-                    f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
-                    f"Mean Reward (100): {mean_reward:.2f} | "
-                    f"Policy Loss: {self.policy_losses[-1]:.4f} | "
-                    f"Value Loss: {self.value_losses[-1]:.4f} | "
-                    f"Entropy: {self.entropies[-1]:.4f}"
-                )
+                # Log each new episode to JSON
+                for ep_idx in range(last_logged_episode, len(self.episode_rewards)):
+                    self.metrics_logger.log_episode(
+                        timestep=timesteps,
+                        episode_num=ep_idx + 1,
+                        reward=self.episode_rewards[ep_idx],
+                        length=self.episode_lengths[ep_idx],
+                        mean_reward_100=mean_reward,
+                        policy_loss=self.policy_losses[-1] if self.policy_losses else None,
+                        value_loss=self.value_losses[-1] if self.value_losses else None,
+                        entropy=self.entropies[-1] if self.entropies else None
+                    )
                 
-                log.log(metrics_str, self.trainlogname)
+                last_logged_episode = len(self.episode_rewards)
                 
                 # Console logging (less frequent)
                 if len(self.episode_rewards) % 10 == 0:
                     log.log(f"Timesteps: {timesteps}/{total_timesteps} | "
                           f"Episodes: {len(self.episode_rewards)} | "
                           f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
-                          f"Mean Reward (last 100): {mean_reward:.2f}", ["ppo_debug", "console"])
+                          f"Mean Reward (last 100): {mean_reward:.2f}", "console")
             
             # Evaluation
             if timesteps % eval_freq < steps_per_rollout:
                 eval_reward = self.evaluate(n_episodes=5)
                 eval_rewards.append((timesteps, eval_reward))
-                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["ppo_debug", "console", self.trainlogname])
+                self.metrics_logger.log_evaluation(timesteps, eval_reward)
+                log.log(f"Evaluation at {timesteps}: {eval_reward:.2f}", "console")
+        
+        # Log final statistics
+        if len(self.episode_rewards) > 0:
+            final_mean = np.mean(self.episode_rewards[-100:])
+            self.metrics_logger.log_final_stats(
+                total_episodes=len(self.episode_rewards),
+                total_timesteps=timesteps,
+                final_mean_reward=final_mean
+            )
         
         # Save model
         if save_path:
             self.save(save_path)
-            log.log(f"Model saved to {save_path}", "ppo_debug")
+            log.log(f"Model saved to {save_path}", "console")
         
         return eval_rewards
     
@@ -390,6 +455,8 @@ class PPOTrainer(ModelTrainer):
     
     def plot_training(self, path: Optional[str] = None, display: bool = False):
         """Plot training progress."""
+        import matplotlib.pyplot as plt
+        
         fig, axes = plt.subplots(2, 1, figsize=(10, 8))
         
         # Episode rewards (use parent class method)
@@ -414,6 +481,7 @@ class PPOTrainer(ModelTrainer):
         if display:
             plt.show()
 
+
 class SACTrainer(ModelTrainer):
     """SAC trainer for continuous control Gymnasium environments."""
     def __init__(
@@ -437,7 +505,7 @@ class SACTrainer(ModelTrainer):
         # Verify continuous action space
         if not self.continuous:
             raise ValueError("SAC only supports continuous action spaces")
-        
+                
         # Action scaling
         self.action_scale = torch.FloatTensor((self.env.action_space.high - self.env.action_space.low) / 2.0)
         self.action_bias = torch.FloatTensor((self.env.action_space.high + self.env.action_space.low) / 2.0)
@@ -463,7 +531,6 @@ class SACTrainer(ModelTrainer):
         # Automatic entropy tuning
         self.auto_entropy = auto_entropy
         if auto_entropy:
-            # >< trying to get more exploration
             self.target_entropy = -0.1 * self.act_dim
             self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
             self.alpha_optimizer = optim.Adam([self.log_alpha], lr=lr)
@@ -485,10 +552,6 @@ class SACTrainer(ModelTrainer):
         self.critic_losses = []
         self.alpha_losses = []
         self.q_values = []
-
-        # Setup logging
-        log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "sac_debug.txt"))
-        log.add_output("sac_debug", log_path, timestamps=True)
         
     def select_action(self, state: np.ndarray, deterministic: bool = False):
         """Select action from policy."""
@@ -502,9 +565,7 @@ class SACTrainer(ModelTrainer):
                 action, _, _ = self.actor.sample(state_tensor)
         
         action = action.cpu().numpy().squeeze()
-        log.log(f"prescaled action: {action}", "sac_debug")
         action = action * self.action_scale.cpu().numpy() + self.action_bias.cpu().numpy()
-        log.log(f"postscaled action: {action}", "sac_debug")
         return np.clip(action, self.env.action_space.low, self.env.action_space.high)
     
     def update(self):
@@ -591,16 +652,11 @@ class SACTrainer(ModelTrainer):
         
         for param, target_param in zip(self.critic2.parameters(), self.critic2_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-
-        # For debugging purposes
-        log.log(f"Mean Q1: {current_q1.mean():.2f}, Q2: {current_q2.mean():.2f}", "sac_debug")
-        log.log(f"Actor loss: {actor_loss.item():.3f}, Critic loss: {critic1_loss.item():.3f}", "sac_debug")
-        if self.auto_entropy:
-            log.log(f"Alpha: {self.alpha.item():.4f}", "sac_debug")
     
-    def train(self, total_timesteps: int, eval_freq: int = 10000, update_freq: int = 1, gradient_steps: int = 1, save_path: Optional[str] = None):
+    def train(self, total_timesteps: int, eval_freq: int = 10000, update_freq: int = 1, 
+              gradient_steps: int = 1, save_path: Optional[str] = None):
         """Train the agent."""
-        log.log(f"Training on {self.env_name}", "console")
+        log.log(f"Training SACTrainer on {self.env_name}", "console")
         log.log(f"Device: {self.device}", "console")
         log.log(f"Observation dim: {self.obs_dim}, Action dim: {self.act_dim}", "console")
         log.log(f"Auto entropy tuning: {self.auto_entropy}", "console")
@@ -612,9 +668,6 @@ class SACTrainer(ModelTrainer):
         eval_rewards = []
         
         for timestep in range(1, total_timesteps + 1):
-            if timestep % 500 == 0:
-                log.log(f"Timestep {timestep}", "console")
-
             # Select action
             if timestep < self.warmup_steps:
                 action = self.env.unwrapped.scripted_policy()
@@ -635,42 +688,42 @@ class SACTrainer(ModelTrainer):
             if timestep >= self.warmup_steps and timestep % update_freq == 0:
                 for _ in range(gradient_steps):
                     self.update()
-                    log.log(f"Action mean: {action.mean():.3f}, std: {action.std():.3f}", "sac_debug")
             
             if done:
                 self.episode_rewards.append(ep_reward)
                 self.episode_lengths.append(ep_length)
                 
-                # Log metrics to training log
+                # Log metrics to JSON
                 recent_rewards = self.episode_rewards[-100:]
                 mean_reward = np.mean(recent_rewards)
                 
-                metrics_str = (
-                    f"Timestep: {timestep} | "
-                    f"Episodes: {len(self.episode_rewards)} | "
-                    f"Episode Reward: {ep_reward:.2f} | "
-                    f"Mean Reward (100): {mean_reward:.2f} | "
-                    f"Episode Length: {ep_length} | "
-                    f"Buffer Size: {len(self.replay_buffer)}"
-                )
-                
+                log_kwargs = {
+                    "buffer_size": len(self.replay_buffer)
+                }
                 if len(self.actor_losses) > 0:
-                    metrics_str += f" | Actor Loss: {self.actor_losses[-1]:.4f}"
+                    log_kwargs["actor_loss"] = self.actor_losses[-1]
                 if len(self.critic_losses) > 0:
-                    metrics_str += f" | Critic Loss: {self.critic_losses[-1]:.4f}"
+                    log_kwargs["critic_loss"] = self.critic_losses[-1]
                 if len(self.q_values) > 0:
-                    metrics_str += f" | Mean Q: {self.q_values[-1]:.2f}"
+                    log_kwargs["mean_q"] = self.q_values[-1]
                 if self.auto_entropy and len(self.alpha_losses) > 0:
-                    metrics_str += f" | Alpha: {self.alpha.item():.4f}"
+                    log_kwargs["alpha"] = self.alpha.item()
                 
-                log.log(metrics_str, self.trainlogname)
+                self.metrics_logger.log_episode(
+                    timestep=timestep,
+                    episode_num=len(self.episode_rewards),
+                    reward=ep_reward,
+                    length=ep_length,
+                    mean_reward_100=mean_reward,
+                    **log_kwargs
+                )
                 
                 state, _ = self.env.reset()
                 ep_reward = 0
                 ep_length = 0
                 
                 if len(self.episode_rewards) % 10 == 0:
-                    log.log(f"Timesteps: {timestep}/{total_timesteps} |"
+                    log.log(f"Timesteps: {timestep}/{total_timesteps} | "
                           f"Episodes: {len(self.episode_rewards)} | "
                           f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
                           f"Mean Reward (last 100): {mean_reward:.2f}", "console")
@@ -681,8 +734,17 @@ class SACTrainer(ModelTrainer):
             if timestep % eval_freq == 0 and timestep > self.warmup_steps:
                 eval_reward = self.evaluate(n_episodes=5)
                 eval_rewards.append((timestep, eval_reward))
-                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["console", self.trainlogname])
-
+                self.metrics_logger.log_evaluation(timestep, eval_reward)
+                log.log(f"Evaluation at {timestep}: {eval_reward:.2f}", "console")
+        
+        # Log final statistics
+        if len(self.episode_rewards) > 0:
+            final_mean = np.mean(self.episode_rewards[-100:])
+            self.metrics_logger.log_final_stats(
+                total_episodes=len(self.episode_rewards),
+                total_timesteps=total_timesteps,
+                final_mean_reward=final_mean
+            )
         
         # Save model
         if save_path:
@@ -744,6 +806,8 @@ class SACTrainer(ModelTrainer):
     
     def plot_training(self, path: Optional[str] = None, display: bool = False):
         """Plot training progress."""
+        import matplotlib.pyplot as plt
+        
         fig, axes = plt.subplots(3, 1, figsize=(10, 12))
         
         # Episode rewards (use parent class method)
@@ -780,9 +844,7 @@ class SACTrainer(ModelTrainer):
         if display:
             plt.show()
 
-# Was gonna do DQN cause I have a predilection for that one, but it can't do continuous action spaces. This is the most similar one.
-# This is very unstable though so we'll see if it actually works much at all.
-# Spoiler alert: it sucks
+
 class DDPGTrainer(ModelTrainer):
     """DDPG trainer for continuous control Gymnasium environments."""
     def __init__(
@@ -807,7 +869,7 @@ class DDPGTrainer(ModelTrainer):
         # Verify continuous action space
         if not self.continuous:
             raise ValueError("DDPG only supports continuous action spaces")
-        
+                
         # Action scaling
         self.action_high = torch.FloatTensor(self.env.action_space.high)
         self.action_low = torch.FloatTensor(self.env.action_space.low)
@@ -848,10 +910,6 @@ class DDPGTrainer(ModelTrainer):
         self.actor_losses = []
         self.critic_losses = []
         self.q_values = []
-        
-        # Setup logging
-        log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "ddpg_debug.txt"))
-        log.add_output("ddpg_debug", log_path, timestamps=True)
     
     def select_action(self, state: np.ndarray, add_noise: bool = True) -> np.ndarray:
         """Select action from policy with optional exploration noise."""
@@ -872,7 +930,6 @@ class DDPGTrainer(ModelTrainer):
         action = action * self.action_scale.cpu().numpy() + self.action_bias.cpu().numpy()
         action = np.clip(action, self.action_low.cpu().numpy(), self.action_high.cpu().numpy())
         
-        log.log(f"Selected action: {action}", "ddpg_debug")
         return action
     
     def update(self):
@@ -923,15 +980,11 @@ class DDPGTrainer(ModelTrainer):
         
         for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-        
-        # Logging
-        log.log(f"Mean Q: {current_q.mean():.2f}", "ddpg_debug")
-        log.log(f"Actor loss: {actor_loss.item():.3f}, Critic loss: {critic_loss.item():.3f}", "ddpg_debug")
     
     def train(self, total_timesteps: int, eval_freq: int = 10000, update_freq: int = 1, 
               gradient_steps: int = 1, save_path: Optional[str] = None):
         """Train the agent."""
-        log.log(f"Training on {self.env_name}", "console")
+        log.log(f"Training DDPGTrainer on {self.env_name}", "console")
         log.log(f"Device: {self.device}", "console")
         log.log(f"Observation dim: {self.obs_dim}, Action dim: {self.act_dim}", "console")
         log.log("-" * 50, "console")
@@ -942,12 +995,8 @@ class DDPGTrainer(ModelTrainer):
         eval_rewards = []
         
         for timestep in range(1, total_timesteps + 1):
-            if timestep % 500 == 0:
-                log.log(f"Timestep {timestep}", "console")
-            
             # Select action
             if timestep < self.warmup_steps:
-                # Random actions during warmup
                 action = self.env.action_space.sample()
             else:
                 action = self.select_action(state, add_noise=True)
@@ -971,27 +1020,28 @@ class DDPGTrainer(ModelTrainer):
                 self.episode_rewards.append(ep_reward)
                 self.episode_lengths.append(ep_length)
                 
-                # Log metrics to training log
+                # Log metrics to JSON
                 recent_rewards = self.episode_rewards[-100:]
                 mean_reward = np.mean(recent_rewards)
                 
-                metrics_str = (
-                    f"Timestep: {timestep} | "
-                    f"Episodes: {len(self.episode_rewards)} | "
-                    f"Episode Reward: {ep_reward:.2f} | "
-                    f"Mean Reward (100): {mean_reward:.2f} | "
-                    f"Episode Length: {ep_length} | "
-                    f"Buffer Size: {len(self.replay_buffer)}"
-                )
-                
+                log_kwargs = {
+                    "buffer_size": len(self.replay_buffer)
+                }
                 if len(self.actor_losses) > 0:
-                    metrics_str += f" | Actor Loss: {self.actor_losses[-1]:.4f}"
+                    log_kwargs["actor_loss"] = self.actor_losses[-1]
                 if len(self.critic_losses) > 0:
-                    metrics_str += f" | Critic Loss: {self.critic_losses[-1]:.4f}"
+                    log_kwargs["critic_loss"] = self.critic_losses[-1]
                 if len(self.q_values) > 0:
-                    metrics_str += f" | Mean Q: {self.q_values[-1]:.2f}"
+                    log_kwargs["mean_q"] = self.q_values[-1]
                 
-                log.log(metrics_str, self.trainlogname)
+                self.metrics_logger.log_episode(
+                    timestep=timestep,
+                    episode_num=len(self.episode_rewards),
+                    reward=ep_reward,
+                    length=ep_length,
+                    mean_reward_100=mean_reward,
+                    **log_kwargs
+                )
                 
                 state, _ = self.env.reset()
                 ep_reward = 0
@@ -1008,7 +1058,17 @@ class DDPGTrainer(ModelTrainer):
             if timestep % eval_freq == 0 and timestep > self.warmup_steps:
                 eval_reward = self.evaluate(n_episodes=5)
                 eval_rewards.append((timestep, eval_reward))
-                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["console", self.trainlogname])
+                self.metrics_logger.log_evaluation(timestep, eval_reward)
+                log.log(f"Evaluation at {timestep}: {eval_reward:.2f}", "console")
+        
+        # Log final statistics
+        if len(self.episode_rewards) > 0:
+            final_mean = np.mean(self.episode_rewards[-100:])
+            self.metrics_logger.log_final_stats(
+                total_episodes=len(self.episode_rewards),
+                total_timesteps=total_timesteps,
+                final_mean_reward=final_mean
+            )
         
         # Save model
         if save_path:
@@ -1066,6 +1126,8 @@ class DDPGTrainer(ModelTrainer):
     
     def plot_training(self, path: Optional[str] = None, display: bool = False):
         """Plot training progress."""
+        import matplotlib.pyplot as plt
+        
         fig, axes = plt.subplots(3, 1, figsize=(10, 12))
         
         # Episode rewards (use parent class method)
@@ -1102,8 +1164,7 @@ class DDPGTrainer(ModelTrainer):
         if display:
             plt.show()
 
-# Was not gonna run a 4th but HOLY does DDPG suck bollocks
-# Deterministic? Unstable? BOOOOOOOOOO
+
 class A2CTrainer(ModelTrainer):
     """A2C (Advantage Actor-Critic) trainer for any Gymnasium environment."""
     
@@ -1122,7 +1183,7 @@ class A2CTrainer(ModelTrainer):
     ):
         # Initialize parent class
         super().__init__(env_name, device, reward_mode)
-        
+                
         # Initialize network
         self.network = mc.ActorCriticNetwork(
             self.obs_dim, self.act_dim, self.continuous, hidden_sizes
@@ -1142,10 +1203,6 @@ class A2CTrainer(ModelTrainer):
         self.policy_losses = []
         self.value_losses = []
         self.entropies = []
-
-        # Setup logging
-        log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "a2c_debug.txt"))
-        log.add_output("a2c_debug", log_path, timestamps=True)
 
     def compute_returns(self, rewards: List[float], next_value: float, dones: List[bool]) -> np.ndarray:
         """Compute n-step returns."""
@@ -1248,17 +1305,14 @@ class A2CTrainer(ModelTrainer):
         self.policy_losses.append(policy_loss.item())
         self.value_losses.append(value_loss.item())
         self.entropies.append(entropy.item())
-        
-        log.log(f"Entropy: {entropy:.4f}", "a2c_debug")
-        log.log(f"Policy loss: {policy_loss.item():.3f}, Value loss: {value_loss.item():.3f}", "a2c_debug")
     
     def train(self, total_timesteps: int, eval_freq: int = 10000, save_path: Optional[str] = None):
         """Train the agent."""
-        log.log(f"Training on {self.env_name}", ["a2c_debug", "console"])
-        log.log(f"Device: {self.device}", ["a2c_debug", "console"])
-        log.log(f"Observation dim: {self.obs_dim}, Action dim: {self.act_dim}", ["a2c_debug", "console"])
-        log.log(f"Continuous: {self.continuous}", ["a2c_debug", "console"])
-        log.log("-" * 50, ["a2c_debug", "console"])
+        log.log(f"Training A2CTrainer on {self.env_name}", "console")
+        log.log(f"Device: {self.device}", "console")
+        log.log(f"Observation dim: {self.obs_dim}, Action dim: {self.act_dim}", "console")
+        log.log(f"Continuous: {self.continuous}", "console")
+        log.log("-" * 50, "console")
         
         timesteps = 0
         eval_rewards = []
@@ -1297,26 +1351,20 @@ class A2CTrainer(ModelTrainer):
                     self.episode_rewards.append(ep_reward)
                     self.episode_lengths.append(ep_length)
                     
-                    # Log metrics to training log
+                    # Log metrics to JSON
                     recent_rewards = self.episode_rewards[-100:]
                     mean_reward = np.mean(recent_rewards)
                     
-                    metrics_str = (
-                        f"Timestep: {timesteps} | "
-                        f"Episodes: {len(self.episode_rewards)} | "
-                        f"Episode Reward: {ep_reward:.2f} | "
-                        f"Mean Reward (100): {mean_reward:.2f} | "
-                        f"Episode Length: {ep_length}"
+                    self.metrics_logger.log_episode(
+                        timestep=timesteps,
+                        episode_num=len(self.episode_rewards),
+                        reward=ep_reward,
+                        length=ep_length,
+                        mean_reward_100=mean_reward,
+                        policy_loss=self.policy_losses[-1] if self.policy_losses else None,
+                        value_loss=self.value_losses[-1] if self.value_losses else None,
+                        entropy=self.entropies[-1] if self.entropies else None
                     )
-                    
-                    if len(self.policy_losses) > 0:
-                        metrics_str += f" | Policy Loss: {self.policy_losses[-1]:.4f}"
-                    if len(self.value_losses) > 0:
-                        metrics_str += f" | Value Loss: {self.value_losses[-1]:.4f}"
-                    if len(self.entropies) > 0:
-                        metrics_str += f" | Entropy: {self.entropies[-1]:.4f}"
-                    
-                    log.log(metrics_str, self.trainlogname)
                     
                     state, _ = self.env.reset()
                     ep_reward = 0
@@ -1347,25 +1395,35 @@ class A2CTrainer(ModelTrainer):
             # Update policy
             self.update(rollout)
             
-            # Logging
+            # Console logging (less frequent)
             if len(self.episode_rewards) > 0 and len(self.episode_rewards) % 10 == 0:
                 recent_rewards = self.episode_rewards[-100:]
                 mean_reward = np.mean(recent_rewards)
                 log.log(f"Timesteps: {timesteps}/{total_timesteps} | "
                       f"Episodes: {len(self.episode_rewards)} | "
                       f"Recent Reward: {self.episode_rewards[-1]:.2f} | "
-                      f"Mean Reward (last 100): {mean_reward:.2f}", ["a2c_debug", "console"])
+                      f"Mean Reward (last 100): {mean_reward:.2f}", "console")
             
             # Evaluation
             if timesteps % eval_freq < self.n_steps:
                 eval_reward = self.evaluate(n_episodes=5)
                 eval_rewards.append((timesteps, eval_reward))
-                log.log(f"Evaluation Reward: {eval_reward:.2f}", ["a2c_debug", "console", self.trainlogname])
+                self.metrics_logger.log_evaluation(timesteps, eval_reward)
+                log.log(f"Evaluation at {timesteps}: {eval_reward:.2f}", "console")
+        
+        # Log final statistics
+        if len(self.episode_rewards) > 0:
+            final_mean = np.mean(self.episode_rewards[-100:])
+            self.metrics_logger.log_final_stats(
+                total_episodes=len(self.episode_rewards),
+                total_timesteps=timesteps,
+                final_mean_reward=final_mean
+            )
         
         # Save model
         if save_path:
             self.save(save_path)
-            log.log(f"Model saved to {save_path}", "a2c_debug")
+            log.log(f"Model saved to {save_path}", "console")
         
         return eval_rewards
     
@@ -1421,6 +1479,8 @@ class A2CTrainer(ModelTrainer):
     
     def plot_training(self, path: Optional[str] = None, display: bool = False):
         """Plot training progress."""
+        import matplotlib.pyplot as plt
+        
         fig, axes = plt.subplots(2, 1, figsize=(10, 8))
         
         # Episode rewards (use parent class method)
@@ -1444,16 +1504,3 @@ class A2CTrainer(ModelTrainer):
             plt.savefig(save_path)
         if display:
             plt.show()
-
-racing_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "envs", "racing_game"))
-target_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "envs", "target_game"))
-sys.path.append(racing_dir)
-from racing_env import RacingEnv
-sys.path.append(target_dir)
-from target_env import TargetEnv
-
-gym.register("RacingEnv", RacingEnv)
-gym.register("TargetEnv", TargetEnv)
-
-
-log.close()

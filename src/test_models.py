@@ -7,6 +7,7 @@ import os
 from abc import abstractmethod, ABC
 import multilogger as ml
 import time
+import json
 
 log = ml.MultiLogger()
 log.add_output("console", sys.stdout, timestamps=True)
@@ -32,6 +33,7 @@ class ModelTester(ABC):
         
         # Setup testing log
         self.testlogname = f"testing-{self.__class__.__name__}-{time.time()}"
+        self.testjsonpath = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", f"testing-{self.__class__.__name__}-{time.time()}.json"))
         testlogpath = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", f"testing-{self.__class__.__name__}-{time.time()}.txt"))
         log.add_output(self.testlogname, testlogpath, timestamps=False)
 
@@ -48,14 +50,15 @@ class ModelTester(ABC):
                 - episode_info : Disgusting list of info dicts.
 
         """
+
         # Log test start
-        log.log("=" * 70, self.testlogname)
-        log.log(f"Testing Model: {self.filename}", [self.testlogname, "console"])
+        log.log("=" * 70, "console")
+        log.log(f"Testing Model: {self.filename}", "console")
         env_name = getattr(getattr(self.env, "spec", None), "id", "Unknown")
-        log.log(f"Environment: {env_name}", [self.testlogname, "console"])
-        log.log(f"Number of Episodes: {n_episodes}", [self.testlogname, "console"])
-        log.log(f"Device: {self.device}", [self.testlogname, "console"])
-        log.log("=" * 70, self.testlogname)
+        log.log(f"Environment: {env_name}", "console")
+        log.log(f"Number of Episodes: {n_episodes}", "console")
+        log.log(f"Device: {self.device}", "console")
+        log.log("=" * 70, "console")
         
         obs, info = self.env.reset()
 
@@ -127,6 +130,9 @@ class ModelTester(ABC):
             log.log(f"Collision Rate: {collision_rate:.1f}% ({collision_count}/{n_episodes})", [self.testlogname, "console"])
         
         log.log("=" * 70, self.testlogname)
+
+        with open(self.testjsonpath, 'w') as f:
+            json.dump(episode_infos, f, indent=2)
 
         # Unfortunately the info dict is going to depend on the env so can't be standardized
         return episode_rewards, episode_infos, terminal_infos
@@ -352,4 +358,3 @@ class PPOTester(ModelTester):
     def test(self, n_episodes : int = 10, visual : bool = False):
         return super().test(n_episodes=n_episodes, visual=visual)
     
-log.close()

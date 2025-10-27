@@ -7,16 +7,10 @@ Assignment for Topics in CS I
 - python main.py --mode test --episodes 1 --algo SAC --env RacingEnv --model pretrained_SAC_racing.pt --render
 - python main.py --mode test --episodes 1 --algo SAC --env TargetEnv --model pretrained_SAC_target.pt --render
 - python main.py --mode test --episodes 1 --algo DDPG --env TargetEnv --model pretrained_DDPG_target.pt --render
-- python main.py --mode test --episodes 1 --algo PPO --env TargetEnv --model pretrained_PPO_racing.pt --render (if I want to use consistent algorithms for pres)
-
-
-## TODOLIST
-# Before Submission
-- Do data analysis in Jupyter notebooks
-- Make it actually save csv's (can just do with MultiLogger?)
-- Factcheck the docstrings to be correct (done for the envs and honestly fuck the rest of it)
+- python main.py --mode test --episodes 1 --algo PPO --env TargetEnv --model pretrained_PPO_target.pt --render (if I want to use consistent algorithms for pres)
 
 # Dependencies
+Python is needed to run the relevant commands, as well as the following packages. Can be installed using python -m pip install (package).
 - Gymnasium
 - pytorch
 - numpy
@@ -31,6 +25,7 @@ CWD is expected to be (your abs path)/DRL-Assignment/src
 python main.py --mode play_(game)
 
 Valid modes for this are racing and target (the environments agents play) and dungeon (because I wrote all that code and gosh darnit I will be including it somehow).
+
 Running this command will allow a human to play the relevant game.
 
 ## Scripted Policies - Special Mode
@@ -46,7 +41,7 @@ Valid args:
 - train
 - test
 - resume
-Admittedly resume is probably useless as I never bothered saving intermediate steps. But it's there.
+Admittedly resume is probably useless as I never bothered saving intermediate steps. But it's there. You can continue training from a model.
 ### --env
 Valid args:
 - TargetEnv
@@ -70,6 +65,7 @@ Flag that when provided, and testing, causes the program to render the environme
 
 ## Quickstart Guide:
 1. Either review the code or make sure you trust me. The way I load the models can allow for ARBITRARY CODE EXECUTION. I have not added ACE or RCE exploits to my code, but you should probably make sure of that. Don't trust people on the internet. Also navigate to the previously specified working directory (your abspath to clone folder)/DRL-Assignment/src
+
 2. If you want to train new models use the following commands:
 - python main.py --mode train --steps 500000 --algo PPO --env RacingEnv --model PPO_racing.pt
 - python main.py --mode train --steps 500000 --algo PPO --env TargetEnv --model PPO_target.pt
@@ -83,9 +79,11 @@ Flag that when provided, and testing, causes the program to render the environme
 Alternatively pretrained ones are available at the following filenames:
 
 pretrained_(PPO, SAC, DDPG, A2C)_(racing, target).pt
+
 3. Take a look at the scripted policies used in the warmups so you can decide they aren't good enough to count as handscripted bot policies and that I don't deserve to be docked marks for including them.
 - python main.py --mode demo_racing
 - python main.py --mode demo_target
+
 4. You can watch the models you just trained with the following commands:
 - python main.py --mode test --episodes 1 --algo PPO --env RacingEnv --model PPO_racing.pt --render
 - python main.py --mode test --episodes 1 --algo PPO --env TargetEnv --model PPO_target.pt --render
@@ -95,5 +93,8 @@ pretrained_(PPO, SAC, DDPG, A2C)_(racing, target).pt
 - python main.py --mode test --episodes 1 --algo DDPG --env TargetEnv --model DDPG_target.pt --render
 - python main.py --mode test --episodes 1 --algo A2C --env RacingEnv --model A2C_racing.pt --render
 - python main.py --mode test --episodes 1 --algo A2C --env TargetEnv --model A2C_target.pt --render
+
 5. Go inspect the jupyter notebooks that include some pretty snazzy data analysis. You should probably run the things too, I guess. They should come prefilled in with the results I did the analysis on though.
 
+![Racing Models](./racingmodels.gif)
+![Target Models](./targetmodels.gif)

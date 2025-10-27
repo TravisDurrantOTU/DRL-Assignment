@@ -1,4 +1,0 @@
-DDPG Tester initialized - Hidden sizes: [256, 256]
-Action bounds - Low: [-1. -1.], High: [1. 1.]
-Loading model from: c:\Users\karat\Documents\topics_in_cs1\DRL-Assignment\models\pretrained_DDPG_racing.pt
-Model loaded successfully

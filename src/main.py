@@ -3,7 +3,6 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-import torch
 import gymnasium as gym
 
 # Local imports
@@ -19,6 +18,9 @@ log.log("DRL Control Interface Initialized")
 # Cheesed out way to make the training log print to same console
 import train
 train.log = log
+
+import test_models
+test_models.log = log
 
 # Directories
 BASE_DIR = Path(__file__).resolve().parent
@@ -134,6 +136,17 @@ def main():
         rewards, infos, terminals = tester.test(n_episodes=args.episodes, visual=args.render)
         avg_reward = sum(rewards) / len(rewards)
         log.log(f"Testing complete. Average reward: {avg_reward:.2f}")
+
+
+racing_dir = os.path.abspath(os.path.join(os.getcwd(), "..", "envs", "racing_game"))
+target_dir = os.path.abspath(os.path.join(os.getcwd(), "..", "envs", "target_game"))
+sys.path.append(racing_dir)
+from racing_env import RacingEnv
+sys.path.append(target_dir)
+from target_env import TargetEnv
+
+gym.register("RacingEnv", RacingEnv)
+gym.register("TargetEnv", TargetEnv)
 
 
 if __name__ == "__main__":

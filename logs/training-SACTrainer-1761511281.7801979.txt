@@ -1,3 +1,0 @@
-Starting training for SACTrainer on RacingEnv
-Timestep: 626 | Episodes: 1 | Episode Reward: 1129.53 | Mean Reward (100): 1129.53 | Episode Length: 626 | Buffer Size: 626
-Training complete.
